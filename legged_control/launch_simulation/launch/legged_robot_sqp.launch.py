@@ -80,7 +80,7 @@ def generate_launch_description():
             executable='mujoco_simulator',
             name='mujoco_simulator',
             output='screen',
-            prefix="gnome-terminal --",
+            #prefix="gnome-terminal --",
             parameters=[
             	{
                     'xmlFile': launch.substitutions.LaunchConfiguration('xmlFile')
@@ -116,7 +116,7 @@ def generate_launch_description():
             executable='legged_robot_sqp_mpc',
             name='legged_robot_sqp_mpc',
             output='screen',
-            prefix="gnome-terminal --",
+            #prefix="gnome-terminal --",
             parameters=[
             	{
                     'urdfFile': launch.substitutions.LaunchConfiguration('urdfFile')

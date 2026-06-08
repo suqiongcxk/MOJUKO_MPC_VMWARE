@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.8)
 project(mujoco_simulator)
 
-set(MUJOCO_INCLUDE_DIRS /home/zhx/Desktop/zhx_legged_ocs2_master/src/mujoco/mujoco-3.2.2/include)
-set(MUJOCO_LIBRARIES /home/zhx/Desktop/zhx_legged_ocs2_master/src/mujoco/mujoco-3.2.2/lib/libmujoco.so)
+set(MUJOCO_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../mujoco/mujoco-3.2.2)
+set(MUJOCO_INCLUDE_DIRS ${MUJOCO_BASE_DIR}/include)
+set(MUJOCO_LIBRARIES ${MUJOCO_BASE_DIR}/lib/libmujoco.so)
 
 
 # find dependencies

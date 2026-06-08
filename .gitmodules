@@ -1,0 +1,10 @@
+[submodule "ocs2_ros2"]
+	path = ocs2_ros2
+	url = https://github.com/zhengxiang94/ocs2_ros2.git
+	branch = ros2
+[submodule "ocs2_robotic_assets"]
+	path = ocs2_robotic_assets
+	url = https://github.com/zhengxiang94/ocs2_robotic_assets.git
+[submodule "plane_segmentation_ros2"]
+	path = plane_segmentation_ros2
+	url = https://github.com/zhengxiang94/plane_segmentation_ros2.git

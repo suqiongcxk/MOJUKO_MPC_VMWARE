@@ -1,1 +1,7 @@
 node_modules
+ocs2_ros2/build/
+ocs2_ros2/install/
+ocs2_ros2/log/
+ocs2_robotic_assets/build/
+ocs2_robotic_assets/install/
+ocs2_robotic_assets/log/

@@ -65,8 +65,9 @@ pkg_check_modules(pinocchio REQUIRED pinocchio)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 # Manually add qpOASES (compiled from source)
-include_directories(/home/zhx/Desktop/zhx_legged_ocs2_master/src/qpOASES-master/include)
-link_directories(/home/zhx/Desktop/zhx_legged_ocs2_master/src/qpOASES-master/build/libs)
+set(QPOASES_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../qpOASES-master)
+include_directories(${QPOASES_BASE_DIR}/include)
+link_directories(${QPOASES_BASE_DIR}/build/libs)
 
 # Add directories for all targets
 include_directories(
@@ -112,7 +113,7 @@ add_library(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   ${dependencies}
 )
-target_link_libraries(${PROJECT_NAME} /home/zhx/Desktop/zhx_legged_ocs2_master/src/qpOASES-master/build/libs/libqpOASES.a)
+target_link_libraries(${PROJECT_NAME} ${QPOASES_BASE_DIR}/build/libs/libqpOASES.a)
 target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
 
 ## SQP-MPC node for legged robot
@@ -124,7 +125,7 @@ ament_target_dependencies(legged_robot_sqp_mpc
 )
 target_link_libraries(legged_robot_sqp_mpc
   ${PROJECT_NAME}
-  /home/zhx/Desktop/zhx_legged_ocs2_master/src/qpOASES-master/build/libs/libqpOASES.a
+  ${QPOASES_BASE_DIR}/build/libs/libqpOASES.a
 )
 target_compile_options(legged_robot_sqp_mpc  PRIVATE ${OCS2_CXX_FLAGS})
 
