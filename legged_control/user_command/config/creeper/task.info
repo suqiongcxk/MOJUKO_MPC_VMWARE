@@ -1,0 +1,321 @@
+////////////////////////////////////////////////////////////////////////////////
+//                       MPC 控制器完整参数配置 (Creeper 机器人)                   //
+//  Creeper: 11.5kg, 12×GO-M8010-6 (23.7Nm), 直接驱动                            //
+////////////////////////////////////////////////////////////////////////////////
+
+centroidalModelType             0
+stateEstimate  true
+
+legged_robot_interface
+{
+  verbose                               false
+  useAnalyticalGradientsDynamics        false
+  useAnalyticalGradientsConstraints     false
+}
+
+model_settings
+{
+  positionErrorGain             0.0
+  phaseTransitionStanceTime     0.1
+  verboseCppAd                  true
+  recompileLibrariesCppAd       false
+  modelFolderCppAd              /tmp/legged_control/creeper
+}
+
+swing_trajectory_config
+{
+  liftOffVelocity               0.05
+  touchDownVelocity            -0.1
+  swingHeight                   0.15
+  swingTimeScale                0.15
+}
+
+; DDP settings
+ddp
+{
+  algorithm                       SLQ
+  nThreads                        3
+  threadPriority                  50
+  maxNumIterations                1
+  minRelCost                      1e-1
+  constraintTolerance             5e-3
+  displayInfo                     false
+  displayShortSummary             false
+  checkNumericalStability         false
+  debugPrintRollout               false
+  debugCaching                    false
+  AbsTolODE                       1e-5
+  RelTolODE                       1e-3
+  maxNumStepsPerSecond            10000
+  timeStep                        0.015
+  backwardPassIntegratorType      ODE45
+  constraintPenaltyInitialValue   20.0
+  constraintPenaltyIncreaseRate   2.0
+  preComputeRiccatiTerms          true
+  useFeedbackPolicy               false
+  strategy                        LINE_SEARCH
+  lineSearch
+  {
+    minStepLength                 1e-2
+    maxStepLength                 1.0
+    hessianCorrectionStrategy     DIAGONAL_SHIFT
+    hessianCorrectionMultiple     1e-5
+  }
+}
+
+; Multiple_Shooting SQP settings
+sqp
+{
+  nThreads                              3
+  dt                                    0.015
+  sqpIteration                          1
+  deltaTol                              1e-4
+  g_max                                 1e-2
+  g_min                                 1e-6
+  inequalityConstraintMu                0.1
+  inequalityConstraintDelta             5.0
+  projectStateInputEqualityConstraints  true
+  printSolverStatistics                 true
+  printSolverStatus                     false
+  printLinesearch                       false
+  useFeedbackPolicy                     false
+  integratorType                        RK2
+  threadPriority                        50
+}
+
+; Multiple_Shooting IPM settings
+; (not used with sqpIteration=1 above, kept for reference)
+ipm
+{
+  nThreads                              3
+  dt                                    0.015
+  ipmIteration                          1
+  deltaTol                              1e-4
+  g_max                                 10.0
+  g_min                                 1e-6
+  computeLagrangeMultipliers            true
+  printSolverStatistics                 true
+  printSolverStatus                     false
+  printLinesearch                       false
+  useFeedbackPolicy                     false
+  integratorType                        RK2
+  threadPriority                        50
+  initialBarrierParameter               1e-4
+  targetBarrierParameter                1e-4
+  barrierLinearDecreaseFactor           0.2
+  barrierSuperlinearDecreasePower       1.5
+  barrierReductionCostTol               1e-3
+  barrierReductionConstraintTol         1e-3
+  fractionToBoundaryMargin              0.995
+  usePrimalStepSizeForDual              false
+  initialSlackLowerBound                1e-4
+  initialDualLowerBound                 1e-4
+  initialSlackMarginRate                1e-2
+  initialDualMarginRate                 1e-2
+}
+
+; Rollout settings
+rollout
+{
+  AbsTolODE                       1e-5
+  RelTolODE                       1e-3
+  timeStep                        0.015
+  integratorType                  ODE45
+  maxNumStepsPerSecond            10000
+  checkNumericalStability         false
+}
+
+mpc
+{
+  timeHorizon                     1.0
+  solutionTimeWindow              -1
+  coldStart                       false
+  debugPrint                      false
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//     初始状态 (24维: [v_com(3), L/mass(3), pose(6), joints(12)])              //
+//  12 joint order (URDF document order): FL→FR→RL→RR                           //
+//    hip_joint ≈ HAA (Hip Abduction/Adduction)                                 //
+//    thigh_joint ≈ HFE (Hip Flexion/Extension)                                 //
+//    calf_joint ≈ KFE (Knee Flexion/Extension)                                 //
+////////////////////////////////////////////////////////////////////////////////
+initialState
+{
+   (0,0)  0.0     ; vcom_x
+   (1,0)  0.0     ; vcom_y
+   (2,0)  0.0     ; vcom_z
+   (3,0)  0.0     ; L_x / robotMass
+   (4,0)  0.0     ; L_y / robotMass
+   (5,0)  0.0     ; L_z / robotMass
+
+   (6,0)  0.0     ; p_base_x
+   (7,0)  0.0     ; p_base_y
+   (8,0)  0.38    ; p_base_z (Creeper 站立高度 ~0.38m)
+   (9,0)  0.0     ; yaw
+   (10,0) 0.0     ; pitch
+   (11,0) 0.0     ; roll
+
+   ;; Front-Left  leg: FL_hip_joint, FL_thigh_joint, FL_calf_joint ;;
+   (12,0) -0.20   ; FL HAA (hip y-rotation, 略外展)
+   (13,0)  0.72   ; FL HFE (thigh y-rotation, 向前)
+   (14,0) -1.44   ; FL KFE (calf y-rotation, 膝盖弯曲 ~82°)
+
+   ;; Front-Right leg: FR_hip_joint, FR_thigh_joint, FR_calf_joint ;;
+   (15,0)  0.20   ; FR HAA (略内收)
+   (16,0)  0.72   ; FR HFE
+   (17,0) -1.44   ; FR KFE
+
+   ;; Rear-Left   leg: RL_hip_joint, RL_thigh_joint, RL_calf_joint ;;
+   (18,0) -0.20   ; RL HAA
+   (19,0)  0.72   ; RL HFE
+   (20,0) -1.44   ; RL KFE
+
+   ;; Rear-Right  leg: RR_hip_joint, RR_thigh_joint, RR_calf_joint ;;
+   (21,0)  0.20   ; RR HAA
+   (22,0)  0.72   ; RR HFE
+   (23,0) -1.44   ; RR KFE
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//  Q 矩阵 (状态权重, 24x24 对角)
+//  权重设置: 质量小(11.5kg), 力矩小(23.7Nm), 所以整体用较小权重, 方便控制器探索
+////////////////////////////////////////////////////////////////////////////////
+Q
+{
+  scaling 1e+0
+
+  ;; 归一化质心动量 [0-5] ;;
+  (0,0)   150.0     ; vcom_x
+  (1,1)   150.0     ; vcom_y
+  (2,2)   100.0     ; vcom_z
+  (3,3)   100.0     ; L_x / mass
+  (4,4)   300.0     ; L_y / mass
+  (5,5)   300.0     ; L_z / mass
+
+  ;; 基座位姿 [6-11] ;;
+  (6,6)   1000.0    ; p_base_x
+  (7,7)   1000.0    ; p_base_y
+  (8,8)   1500.0    ; p_base_z (最大权重, 保持身高)
+  (9,9)   100.0     ; yaw
+  (10,10) 500.0     ; pitch
+  (11,11) 300.0     ; roll
+
+  ;; 12 joints [12-23]: FL→FR→RL→RR, each [HAA, HFE, KFE] ;;
+  (12,12) 20.0      ; FL hip
+  (13,13) 20.0      ; FL thigh
+  (14,14) 10.0      ; FL calf
+  (15,15) 20.0      ; FR hip
+  (16,16) 20.0      ; FR thigh
+  (17,17) 10.0      ; FR calf
+  (18,18) 20.0      ; RL hip
+  (19,19) 20.0      ; RL thigh
+  (20,20) 10.0      ; RL calf
+  (21,21) 20.0      ; RR hip
+  (22,22) 20.0      ; RR thigh
+  (23,23) 10.0      ; RR calf
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//  R 矩阵 (控制权重, 24x24 对角)
+//  控制: [4足接触力(12), 4足端速度(12)]
+//  力矩小, 力也小, force weight 略增大防止激进用力
+////////////////////////////////////////////////////////////////////////////////
+R
+{
+  scaling 1e-3
+
+  ;; 足端接触力 [0-11] ;;
+  (0,0)   1.0       ; FL_force_x
+  (1,1)   1.0       ; FL_force_y
+  (2,2)   1.0       ; FL_force_z
+  (3,3)   1.0       ; FR_force_x
+  (4,4)   1.0       ; FR_force_y
+  (5,5)   1.0       ; FR_force_z
+  (6,6)   1.0       ; RL_force_x
+  (7,7)   1.0       ; RL_force_y
+  (8,8)   1.0       ; RL_force_z
+  (9,9)   1.0       ; RR_force_x
+  (10,10) 1.0       ; RR_force_y
+  (11,11) 1.0       ; RR_force_z
+
+  ;; 摆动足端速度 [12-23] ;;
+  (12,12) 5000.0    ; FL_vel_x
+  (13,13) 5000.0    ; FL_vel_y
+  (14,14) 5000.0    ; FL_vel_z
+  (15,15) 5000.0    ; FR_vel_x
+  (16,16) 5000.0    ; FR_vel_y
+  (17,17) 5000.0    ; FR_vel_z
+  (18,18) 5000.0    ; RL_vel_x
+  (19,19) 5000.0    ; RL_vel_y
+  (20,20) 5000.0    ; RL_vel_z
+  (21,21) 5000.0    ; RR_vel_x
+  (22,22) 5000.0    ; RR_vel_y
+  (23,23) 5000.0    ; RR_vel_z
+}
+
+frictionConeSoftConstraint
+{
+  frictionCoefficient    0.3
+  mu                     0.1
+  delta                  5.0
+}
+
+selfCollision
+{
+  collisionObjectPairs
+  {
+  }
+  collisionLinkPairs
+  {
+    [0] "FL_calf, FR_calf"
+    [1] "RL_calf, RR_calf"
+    [2] "FL_calf, RL_calf"
+    [3] "FR_calf, RR_calf"
+    [4] "LF_FOOT, RF_FOOT"
+    [5] "LH_FOOT, RH_FOOT"
+    [6] "LF_FOOT, LH_FOOT"
+    [7] "RF_FOOT, RH_FOOT"
+  }
+  minimumDistance  0.05
+  mu      1e-2
+  delta   1e-3
+}
+
+; Whole body control
+torqueLimitsTask
+{
+   (0,0)  23.7     ; HAA (GO-M8010-6 direct drive)
+   (1,0)  23.7     ; HFE
+   (2,0)  23.7     ; KFE
+}
+
+frictionConeTask
+{
+  frictionCoefficient    0.3
+}
+
+swingLegTask
+{
+    kp                   350
+    kd                   37
+}
+
+weight
+{
+    swingLeg        100
+    baseAccel       1
+    contactForce    0.01
+}
+
+; State Estimation
+kalmanFilter
+{
+    footRadius                  0.015  ; Creeper foot ball radius
+    imuProcessNoisePosition     0.02
+    imuProcessNoiseVelocity     0.02
+    footProcessNoisePosition    0.002
+    footSensorNoisePosition     0.005
+    footSensorNoiseVelocity     0.1
+    footHeightSensorNoise       0.01
+}

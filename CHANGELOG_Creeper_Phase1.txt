@@ -1,0 +1,81 @@
+# Creeper 仿真适配 — 改动日志
+
+## 2026-06-08 21:41 — 第一阶段仿真适配
+
+### 涉及文件
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `mujoco_simulator/models/creeper/urdf/creeper.xml` | 新建 | MuJoCo MJCF 模型，由 compile 工具转换 + 手动补充 |
+| `mujoco_simulator/models/creeper/urdf/robot.urdf` | 新建 | 基于 Creeper.urdf，添加 mujoco compiler 块 |
+| `mujoco_simulator/models/creeper/urdf/robot.xml` | 新建 | creeper.xml 的软链接，launch 脚本通过此路径加载 |
+| `mujoco_simulator/models/creeper/meshes/*.stl` | 复制 | 13 个 STL 网格文件，从 Creeper/meshes/ 复制 |
+| `user_command/config/creeper/task.info` | 新建 | MPC 参数配置，基于 B1 修改（质量 11.5kg、力矩 23.7Nm） |
+| `user_command/config/creeper/reference.info` | 新建 | 参考轨迹和站立关节角配置 |
+| `user_command/config/creeper/simulation.info` | 新建 | 仿真器参数（时间步长、渲染、PD 增益） |
+| `user_command/config/creeper/gait.info` | 复制 | 12 种步态配置，直接复用 B1 |
+| `launch_simulation/.../legged_robot_sqp.launch.py` | 修改 | robot_type 描述中增加 creeper 选项 |
+
+### 改动 1：URDF → MuJoCo MJCF 转换
+
+- 使用 MuJoCo `compile` 工具：`compile Creeper.urdf creeper.xml`
+- 自动生成：运动学树、惯量参数、碰撞几何体（STL 网格 → 圆柱/盒子/球体原语）
+- 手动补充：
+  - base body + floating joint（free joint，6 DOF）
+  - 地面（floor plane）+ 光照（2 个 directional light）+ 天空盒
+  - IMU sensor site（imu_sensor_site）
+  - 12 个 jointpos + 12 个 jointvel 传感器（关节编码器）
+  - base_quat / base_pose / base_angvel / base_linvel 传感器
+  - 12 个 motor actuator（力矩上限 23.7 Nm）
+  - 碰撞分组（group 1 = 视觉，group 2 = 碰撞）
+
+### 改动 2：关节命名对齐
+
+- 原因：`ModelSettings.h` 硬编码了关节白名单 `{"LF_HAA", "LF_HFE", "LF_KFE", "RF_HAA", "RF_HFE", "RF_KFE", "LH_HAA", "LH_HFE", "LH_KFE", "RH_HAA", "RH_HFE", "RH_KFE"}`
+- Pinocchio 通过 `createPinocchioInterface(urdf, jointNames)` 加载时，不在白名单中的关节会被删除 → 导致 numJointState=0
+- 修改范围：robot.urdf + creeper.xml
+
+| 原名 | 改为 |
+|------|------|
+| FL_hip_joint | LF_HAA |
+| FL_thigh_joint | LF_HFE |
+| FL_calf_joint | LF_KFE |
+| FR_hip_joint | RF_HAA |
+| FR_thigh_joint | RF_HFE |
+| FR_calf_joint | RF_KFE |
+| RL_hip_joint | LH_HAA |
+| RL_thigh_joint | LH_HFE |
+| RL_calf_joint | LH_KFE |
+| RR_hip_joint | RH_HAA |
+| RR_thigh_joint | RH_HFE |
+| RR_calf_joint | RH_KFE |
+
+- actuator 和 sensor 中的 joint 引用同步更新
+
+### 改动 3：足端命名对齐
+
+- 原因 1：`MujocoSimulation.cpp:96` 硬编码 foot geom 名 `{"LF_FOOT_geom", "RF_FOOT_geom", "LH_FOOT_geom", "RH_FOOT_geom"}`
+- 原因 2：`ModelSettings.h` 硬编码 contact body 名 `{"LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"}`
+- 修改范围：robot.urdf + creeper.xml + task.info（碰撞检测对）
+
+| 原名 | 改为 |
+|------|------|
+| FL_foot (link) + FL_foot_joint | LF_FOOT + LF_foot_fixed |
+| FR_foot (link) + FR_foot_joint | RF_FOOT + RF_foot_fixed |
+| RL_foot (link) + RL_foot_joint | LH_FOOT + LH_foot_fixed |
+| RR_foot (link) + RR_foot_joint | RH_FOOT + RH_foot_fixed |
+
+- creeper.xml 中每个 foot 从 calf 内的一个 geom 改为独立的 body（含 mass 0.01kg + visual geom + collision geom）
+
+### 改动 4：launch 脚本
+
+- `legged_robot_sqp.launch.py` 第 11 行：`[a1, go1, b1]` → `[a1, go1, b1, creeper]`
+
+### 仿真验证结果
+
+- MuJoCo 模型加载：通过
+- Pinocchio URDF 解析：通过（nq=19, nv=18, 12 actuated joints）
+- CppAD JIT 编译：通过（13 个库）
+- MPC 求解器启动：通过
+- 仿真循环运行至 20s+：通过
+- 机器人站立：**未通过** — 参数需进一步调优（初始高度、站立关节角、Q/R 权重）

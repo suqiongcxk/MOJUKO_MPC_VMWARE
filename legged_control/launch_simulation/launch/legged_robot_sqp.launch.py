@@ -8,7 +8,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            'robot_type', default_value='b1', description='Robot type: [a1, go1, b1]'
+            'robot_type', default_value='b1', description='Robot type: [a1, go1, b1, creeper]'
         ),
         
         launch.actions.DeclareLaunchArgument(
