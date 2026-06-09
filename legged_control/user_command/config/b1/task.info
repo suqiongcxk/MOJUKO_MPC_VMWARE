@@ -1,131 +1,131 @@
-////////////////////////////////////////////////////////////////////////////////
-//                       MPC 控制器完整参数配置 (B1 机器人)                    //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                       MPC 控制器完整参数配置 (B1 机器人)                    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-// 质心动力学模型类型
-//   0 = FullCentroidalDynamics  全动力学: 考虑每条腿的完整刚体动力学, 计算量大
-//   1 = SingleRigidBodyDynamics  单刚体(SRB): 将机器人简化为一个刚体+四条轻腿, 计算快, 本配置使用此模式
+; 质心动力学模型类型
+;   0 = FullCentroidalDynamics  全动力学: 考虑每条腿的完整刚体动力学, 计算量大
+;   1 = SingleRigidBodyDynamics  单刚体(SRB): 将机器人简化为一个刚体+四条轻腿, 计算快, 本配置使用此模式
 centroidalModelType             0
 
-// 状态反馈来源
-//   true  = 使用卡尔曼滤波状态估计 (模拟真实机器人传感器融合)
-//   false = 直接从仿真器读取真实状态 (无噪声, 无延时)
+; 状态反馈来源
+;   true  = 使用卡尔曼滤波状态估计 (模拟真实机器人传感器融合)
+;   false = 直接从仿真器读取真实状态 (无噪声, 无延时)
 stateEstimate  true
 
 legged_robot_interface
 {
-  verbose                               false  // 启动时是否打印所有加载参数的详细信息
-  useAnalyticalGradientsDynamics        false  // 是否使用解析动力学梯度 (false=用CppAD自动微分)
-  useAnalyticalGradientsConstraints     false  // 是否使用解析约束梯度 (false=用CppAD自动微分)
+  verbose                               false  ; 启动时是否打印所有加载参数的详细信息
+  useAnalyticalGradientsDynamics        false  ; 是否使用解析动力学梯度 (false=用CppAD自动微分)
+  useAnalyticalGradientsConstraints     false  ; 是否使用解析约束梯度 (false=用CppAD自动微分)
 }
 
 model_settings
 {
-  // 摆动腿相位切换时的位置误差增益, 0=不使用, 用于平滑切换支撑/摆动相
+  ; 摆动腿相位切换时的位置误差增益, 0=不使用, 用于平滑切换支撑/摆动相
   positionErrorGain             0.0
-  // 相位过渡时的支撑时间 [s], 防止腿在摆动和支撑之间瞬时切换导致冲击
+  ; 相位过渡时的支撑时间 [s], 防止腿在摆动和支撑之间瞬时切换导致冲击
   phaseTransitionStanceTime     0.1
 
-  // CppAD 代码生成选项
-  verboseCppAd                  true     // 打印 CppAD 库编译日志
-  recompileLibrariesCppAd       false    // 每次启动是否强制重新 JIT 编译 (false=已有库则跳过)
-  modelFolderCppAd              /tmp/legged_control/b1  // JIT 编译的动态库缓存目录
+  ; CppAD 代码生成选项
+  verboseCppAd                  true     ; 打印 CppAD 库编译日志
+  recompileLibrariesCppAd       false    ; 每次启动是否强制重新 JIT 编译 (false=已有库则跳过)
+  modelFolderCppAd              /tmp/legged_control/b1  ; JIT 编译的动态库缓存目录
 }
 
-// 摆动腿轨迹参数 (CubicSpline 插值生成足端轨迹)
+; 摆动腿轨迹参数 (CubicSpline 插值生成足端轨迹)
 swing_trajectory_config
 {
-  liftOffVelocity               0.05     // 抬脚瞬间的垂直速度 [m/s], 正值向上
-  touchDownVelocity            -0.1      // 落脚瞬间的垂直速度 [m/s], 负值向下, 避免硬着陆
-  swingHeight                   0.15     // 摆动腿最大抬起高度 [m]
-  swingTimeScale                0.15     // 摆动相时间缩放因子, 越大摆动越快(抬腿越陡)
+  liftOffVelocity               0.05     ; 抬脚瞬间的垂直速度 [m/s], 正值向上
+  touchDownVelocity            -0.1      ; 落脚瞬间的垂直速度 [m/s], 负值向下, 避免硬着陆
+  swingHeight                   0.15     ; 摆动腿最大抬起高度 [m]
+  swingTimeScale                0.15     ; 摆动相时间缩放因子, 越大摆动越快(抬腿越陡)
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                           DDP / SLQ 求解器参数                              //
-//  DDP (Differential Dynamic Programming) 是本系统最优控制问题的核心求解器     //
-//  基于 SLQ (Sequential Linear Quadratic) 算法, 通过反向递推求解 Riccati 方程 //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                           DDP / SLQ 求解器参数                              ;
+;  DDP (Differential Dynamic Programming) 是本系统最优控制问题的核心求解器     ;
+;  基于 SLQ (Sequential Linear Quadratic) 算法, 通过反向递推求解 Riccati 方程 ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; DDP settings
 ddp
 {
-  algorithm                       SLQ   // 算法类型: SLQ (Sequential Linear Quadratic)
+  algorithm                       SLQ   ; 算法类型: SLQ (Sequential Linear Quadratic)
 
-  nThreads                        3     // 并行线程数 (用于约束/代价并行计算)
-  threadPriority                  50    // 线程调度优先级 (Linux nice值, 越高优先级越高)
+  nThreads                        3     ; 并行线程数 (用于约束/代价并行计算)
+  threadPriority                  50    ; 线程调度优先级 (Linux nice值, 越高优先级越高)
 
-  maxNumIterations                1     // DDP 最大迭代次数 (单次 MPC 调用内)
-  minRelCost                      1e-1  // 最小相对代价下降比, 低于此值认为收敛并提前退出
-  constraintTolerance             5e-3  // 等式/不等式约束容忍度
+  maxNumIterations                1     ; DDP 最大迭代次数 (单次 MPC 调用内)
+  minRelCost                      1e-1  ; 最小相对代价下降比, 低于此值认为收敛并提前退出
+  constraintTolerance             5e-3  ; 等式/不等式约束容忍度
 
-  // 调试输出开关
+  ; 调试输出开关
   displayInfo                     false
   displayShortSummary             false
   checkNumericalStability         false
-  debugPrintRollout               false  // 打印 rollout 轨迹的详细数据
+  debugPrintRollout               false  ; 打印 rollout 轨迹的详细数据
   debugCaching                    false
 
-  // ODE 积分器参数 (用于动力学前向仿真/rollout)
-  AbsTolODE                       1e-5  // 绝对误差容限
-  RelTolODE                       1e-3  // 相对误差容限
-  maxNumStepsPerSecond            10000 // 每秒仿真最大步数
-  timeStep                        0.015 // 离散时间步长 [s] (~66Hz)
-  backwardPassIntegratorType      ODE45 // 反向递推使用的积分器: ODE45=4/5阶Runge-Kutta
+  ; ODE 积分器参数 (用于动力学前向仿真/rollout)
+  AbsTolODE                       1e-5  ; 绝对误差容限
+  RelTolODE                       1e-3  ; 相对误差容限
+  maxNumStepsPerSecond            10000 ; 每秒仿真最大步数
+  timeStep                        0.015 ; 离散时间步长 [s] (~66Hz)
+  backwardPassIntegratorType      ODE45 ; 反向递推使用的积分器: ODE45=4/5阶Runge-Kutta
 
-  // 约束惩罚参数 (将硬约束转化为软约束的惩罚函数)
-  constraintPenaltyInitialValue   20.0  // 约束惩罚初始值, 越大约束越硬
-  constraintPenaltyIncreaseRate   2.0   // 每次迭代惩罚倍增因子
+  ; 约束惩罚参数 (将硬约束转化为软约束的惩罚函数)
+  constraintPenaltyInitialValue   20.0  ; 约束惩罚初始值, 越大约束越硬
+  constraintPenaltyIncreaseRate   2.0   ; 每次迭代惩罚倍增因子
 
-  preComputeRiccatiTerms          true  // 预计算 Riccati 递归中与状态无关的项 (加速)
+  preComputeRiccatiTerms          true  ; 预计算 Riccati 递归中与状态无关的项 (加速)
 
-  useFeedbackPolicy               false // 是否在线使用 DDP 生成的最优反馈策略
+  useFeedbackPolicy               false ; 是否在线使用 DDP 生成的最优反馈策略
 
-  // 线搜索策略 (用于全局化 DDP 迭代)
+  ; 线搜索策略 (用于全局化 DDP 迭代)
   strategy                        LINE_SEARCH
   lineSearch
   {
-    minStepLength                 1e-2  // 最小步长, 低于此值认为搜索失败
-    maxStepLength                 1.0   // 最大步长 (1.0=完全采用牛顿步)
-    hessianCorrectionStrategy     DIAGONAL_SHIFT  // Hessian 修正: 加对角偏移保证正定性
-    hessianCorrectionMultiple     1e-5  // 对角偏移幅度
+    minStepLength                 1e-2  ; 最小步长, 低于此值认为搜索失败
+    maxStepLength                 1.0   ; 最大步长 (1.0=完全采用牛顿步)
+    hessianCorrectionStrategy     DIAGONAL_SHIFT  ; Hessian 修正: 加对角偏移保证正定性
+    hessianCorrectionMultiple     1e-5  ; 对角偏移幅度
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                     SQP (Sequential Quadratic Programming) 参数             //
-//  SQP 是外层优化框架, 每次迭代构造一个 QP 子问题交给 DDP/SLQ 求解            //
-//  这是 launch 文件中的 legged_robot_sqp_mpc 使用的核心算法                    //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                     SQP (Sequential Quadratic Programming) 参数             ;
+;  SQP 是外层优化框架, 每次迭代构造一个 QP 子问题交给 DDP/SLQ 求解            ;
+;  这是 launch 文件中的 legged_robot_sqp_mpc 使用的核心算法                    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Multiple_Shooting SQP settings
 sqp
 {
-  nThreads                              3     // 并行线程数
-  dt                                    0.015 // SQP 离散时间步长 [s], 需与 DDP 步长一致
-  sqpIteration                          1     // SQP 外层迭代次数 (=1即每MPC周期只解一次QP)
-  deltaTol                              1e-4  // 约束违反容忍度
+  nThreads                              3     ; 并行线程数
+  dt                                    0.015 ; SQP 离散时间步长 [s], 需与 DDP 步长一致
+  sqpIteration                          1     ; SQP 外层迭代次数 (=1即每MPC周期只解一次QP)
+  deltaTol                              1e-4  ; 约束违反容忍度
 
-  // 松弛对数障碍函数参数 (用于不等式约束的软处理)
-  //   公式: B(x) = mu * sum(log(x)), 当 x > delta 时近似线性
-  g_max                                 1e-2  // 约束梯度/KKT 残差上界, 高于此值为不收敛
-  g_min                                 1e-6  // 约束梯度/KKT 残差下界, 低于此值为已收敛
-  inequalityConstraintMu                0.1   // 对数障碍权重 μ, 越小约束越硬
-  inequalityConstraintDelta             5.0   // 松弛区域宽度 delta, 越大过渡越平滑
+  ; 松弛对数障碍函数参数 (用于不等式约束的软处理)
+  ;   公式: B(x) = mu * sum(log(x)), 当 x > delta 时近似线性
+  g_max                                 1e-2  ; 约束梯度/KKT 残差上界, 高于此值为不收敛
+  g_min                                 1e-6  ; 约束梯度/KKT 残差下界, 低于此值为已收敛
+  inequalityConstraintMu                0.1   ; 对数障碍权重 μ, 越小约束越硬
+  inequalityConstraintDelta             5.0   ; 松弛区域宽度 delta, 越大过渡越平滑
 
-  projectStateInputEqualityConstraints  true  // 是否将解投影到等式约束流形上
-  printSolverStatistics                 true  // 打印求解器统计 (耗时, 迭代数, cost值)
+  projectStateInputEqualityConstraints  true  ; 是否将解投影到等式约束流形上
+  printSolverStatistics                 true  ; 打印求解器统计 (耗时, 迭代数, cost值)
   printSolverStatus                     false
   printLinesearch                       false
   useFeedbackPolicy                     false
 
-  integratorType                        RK2   // 离散动力学积分器: RK2=中点法
+  integratorType                        RK2   ; 离散动力学积分器: RK2=中点法
   threadPriority                        50
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                     IPM (Interior Point Method) 参数                        //
-//  IPM 是 SQP 的替代方案, 通过障碍函数直接处理不等式约束                         //
-//  当前未使用 (因为 MPC 用的是 SQP), 保留用于算法对比                            //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                     IPM (Interior Point Method) 参数                        ;
+;  IPM 是 SQP 的替代方案, 通过障碍函数直接处理不等式约束                         ;
+;  当前未使用 (因为 MPC 用的是 SQP), 保留用于算法对比                            ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Multiple_Shooting IPM settings
 ipm
 {
@@ -143,58 +143,58 @@ ipm
   integratorType                        RK2
   threadPriority                        50
 
-  // 障碍参数调度: μ 从 initial 逐步递减到 target
-  initialBarrierParameter               1e-4  // 初始障碍参数
-  targetBarrierParameter                1e-4  // 目标障碍参数
-  barrierLinearDecreaseFactor           0.2   // 障碍参数线性衰减因子
-  barrierSuperlinearDecreasePower       1.5   // 超线性衰减幂次
-  barrierReductionCostTol               1e-3  // 代价下降容忍度 (触发障碍参数更新)
-  barrierReductionConstraintTol         1e-3  // 约束违反容忍度 (触发障碍参数更新)
+  ; 障碍参数调度: μ 从 initial 逐步递减到 target
+  initialBarrierParameter               1e-4  ; 初始障碍参数
+  targetBarrierParameter                1e-4  ; 目标障碍参数
+  barrierLinearDecreaseFactor           0.2   ; 障碍参数线性衰减因子
+  barrierSuperlinearDecreasePower       1.5   ; 超线性衰减幂次
+  barrierReductionCostTol               1e-3  ; 代价下降容忍度 (触发障碍参数更新)
+  barrierReductionConstraintTol         1e-3  ; 约束违反容忍度 (触发障碍参数更新)
 
-  fractionToBoundaryMargin              0.995 // 步长到约束边界的比例 (0.995=保留0.5%余量)
+  fractionToBoundaryMargin              0.995 ; 步长到约束边界的比例 (0.995=保留0.5%余量)
   usePrimalStepSizeForDual              false
 
-  // 松弛变量初始化
-  initialSlackLowerBound                1e-4  // 松弛变量下界
-  initialDualLowerBound                 1e-4  // 对偶变量下界
+  ; 松弛变量初始化
+  initialSlackLowerBound                1e-4  ; 松弛变量下界
+  initialDualLowerBound                 1e-4  ; 对偶变量下界
   initialSlackMarginRate                1e-2
   initialDualMarginRate                 1e-2
 }
 
-// 前向 rollout (开环仿真) 参数, 用于验证控制序列和计算代价
+; 前向 rollout (开环仿真) 参数, 用于验证控制序列和计算代价
 ; Rollout settings
 rollout
 {
   AbsTolODE                       1e-5
   RelTolODE                       1e-3
   timeStep                        0.015
-  integratorType                  ODE45  // 比 MPC 内部更精确的积分器
+  integratorType                  ODE45  ; 比 MPC 内部更精确的积分器
   maxNumStepsPerSecond            10000
   checkNumericalStability         false
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                         MPC 预测时域与时间参数                               //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                         MPC 预测时域与时间参数                               ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 mpc
 {
-  timeHorizon                     1.0   // 预测时域长度 [s], 越长看得越远但计算量越大
-  solutionTimeWindow              -1    // 最大求解时间 [s], -1=无限制, 跑完所有迭代
-  coldStart                       false // false=热启动 (用上一周期解初始化), true=冷启动
+  timeHorizon                     1.0   ; 预测时域长度 [s], 越长看得越远但计算量越大
+  solutionTimeWindow              -1    ; 最大求解时间 [s], -1=无限制, 跑完所有迭代
+  coldStart                       false ; false=热启动 (用上一周期解初始化), true=冷启动
 
   debugPrint                      false
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                      初始状态 (24维状态向量)                                  //
-//                                                                             //
-//  状态定义 (OCS2 中为 Normalized Centroidal Momentum):                         //
-//    [0-2]:   线速度 v_com [x, y, z]  (m/s)                                    //
-//    [3-5]:   角动量/总质量 L/m [x, y, z]  (归一化质心动量矩)                     //
-//    [6-8]:   基座位置 p_base [x, y, z]  (m)                                    //
-//    [9-11]:  基座姿态 ZYX 欧拉角 [z, y, x]  (rad)                               //
-//    [12-23]: 12个关节角度 [LF_HAA, LF_HFE, LF_KFE, ..., RH_KFE]  (rad)        //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                      初始状态 (24维状态向量)                                  ;
+;                                                                             ;
+;  状态定义 (OCS2 中为 Normalized Centroidal Momentum):                         ;
+;    [0-2]:   线速度 v_com [x, y, z]  (m/s)                                    ;
+;    [3-5]:   角动量/总质量 L/m [x, y, z]  (归一化质心动量矩)                     ;
+;    [6-8]:   基座位置 p_base [x, y, z]  (m)                                    ;
+;    [9-11]:  基座姿态 ZYX 欧拉角 [z, y, x]  (rad)                               ;
+;    [12-23]: 12个关节角度 [LF_HAA, LF_HFE, LF_KFE, ..., RH_KFE]  (rad)        ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 initialState
 {
    ;; 归一化质心动量: [线速度, 角速度] ;;
@@ -231,17 +231,17 @@ initialState
    (23,0) -1.44   ; RH_KFE  -- 右后膝关节
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                  状态权重矩阵 Q (24x24 对角矩阵)                              //
-//                                                                             //
-//  MPC 代价函数: J = sum(x^T Q x + u^T R u)                                    //
-//  Q 的对角元越大, 控制器越 "想" 让该状态紧密跟踪参考轨迹                          //
-//  实际使用时: Q_effective = scaling * Q_diag                                   //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                  状态权重矩阵 Q (24x24 对角矩阵)                              ;
+;                                                                             ;
+;  MPC 代价函数: J = sum(x^T Q x + u^T R u)                                    ;
+;  Q 的对角元越大, 控制器越 "想" 让该状态紧密跟踪参考轨迹                          ;
+;  实际使用时: Q_effective = scaling * Q_diag                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; standard state weight matrix
 Q
 {
-  scaling 1e+0    // Q 矩阵整体缩放因子
+  scaling 1e+0    ; Q 矩阵整体缩放因子
 
   ;; 归一化质心动量 [0-5] ;;
   (0,0)   150.0     ; vcom_x        -- 前向速度跟踪权重 (越大越准时到达目标)
@@ -274,19 +274,19 @@ Q
   (23,23) 10.0      ; RH_KFE
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                控制量权重矩阵 R (24x24 对角矩阵)                              //
-//                                                                             //
-//  控制量定义:                                                                  //
-//    [0-11]:  足端接触力 (3D force × 4条腿 = 12维)                              //
-//    [12-23]: 足端相对于基座的速度 (3D velocity × 4条腿 = 12维)                  //
-//                                                                             //
-//  R 的对角元越大, 控制器越 "吝啬" 使用该控制量 (越小幅, 越平滑)                  //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                控制量权重矩阵 R (24x24 对角矩阵)                              ;
+;                                                                             ;
+;  控制量定义:                                                                  ;
+;    [0-11]:  足端接触力 (3D force × 4条腿 = 12维)                              ;
+;    [12-23]: 足端相对于基座的速度 (3D velocity × 4条腿 = 12维)                  ;
+;                                                                             ;
+;  R 的对角元越大, 控制器越 "吝啬" 使用该控制量 (越小幅, 越平滑)                  ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; control weight matrix
 R
 {
-  scaling 1e-3    // R 矩阵整体缩放因子 (1e-3 意味着控制代价相对状态代价很小)
+  scaling 1e-3    ; R 矩阵整体缩放因子 (1e-3 意味着控制代价相对状态代价很小)
 
   ;; 足端接触力 [0-11] ;;
   ;;  权重=1.0 × 1e-3 = 0.001  (归一化后), 非常小, 允许大力控
@@ -319,59 +319,59 @@ R
   (23,23) 5000.0    ; RH_vel_z
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                   摩擦锥软约束 (防止足端打滑)                                  //
-//                                                                             //
-//  约束条件: 足端水平力 ≤ μ × 足端垂向力                                        //
-//  即 |F_x|, |F_y| ≤ μ * F_z  (F_z > 0, 地面反力向上)                          //
-//  使用松弛对数障碍函数将此不等式转化为代价项                                     //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                   摩擦锥软约束 (防止足端打滑)                                  ;
+;                                                                             ;
+;  约束条件: 足端水平力 ≤ μ × 足端垂向力                                        ;
+;  即 |F_x|, |F_y| ≤ μ * F_z  (F_z > 0, 地面反力向上)                          ;
+;  使用松弛对数障碍函数将此不等式转化为代价项                                     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 frictionConeSoftConstraint
 {
-  frictionCoefficient    0.3    // 摩擦系数 μ, 0.3 ≈ 橡胶在混凝土上的滑动摩擦
+  frictionCoefficient    0.3    ; 摩擦系数 μ, 0.3 ≈ 橡胶在混凝土上的滑动摩擦
 
-  // 松弛对数障碍参数
-  //   当约束值 > delta 时, 障碍函数近似线性 (松弛区), 避免对数函数在 x→0 时爆炸
-  mu                     0.1    // 障碍函数权重, 越大惩罚越重
-  delta                  5.0    // 松弛区域宽度, 越大越 "软"
+  ; 松弛对数障碍参数
+  ;   当约束值 > delta 时, 障碍函数近似线性 (松弛区), 避免对数函数在 x→0 时爆炸
+  mu                     0.1    ; 障碍函数权重, 越大惩罚越重
+  delta                  5.0    ; 松弛区域宽度, 越大越 "软"
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                       自碰撞约束 (防止腿互相撞)                                //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                       自碰撞约束 (防止腿互相撞)                                ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 selfCollision
 {
-  // 原始碰撞几何体对 (本配置未使用, 用下面的 link 对检测)
+  ; 原始碰撞几何体对 (本配置未使用, 用下面的 link 对检测)
   collisionObjectPairs
   {
   }
 
-  // 需要检测碰撞的 link 对 (共8对, 覆盖所有腿间可能碰撞)
+  ; 需要检测碰撞的 link 对 (共8对, 覆盖所有腿间可能碰撞)
   collisionLinkPairs
   {
-    [0] "LF_calf, RF_calf"   // 左前小腿 vs 右前小腿
-    [1] "LH_calf, RH_calf"   // 左后小腿 vs 右后小腿
-    [2] "LF_calf, LH_calf"   // 左前小腿 vs 左后小腿 (对角前-后)
-    [3] "RF_calf, RH_calf"   // 右前小腿 vs 右后小腿
-    [4] "LF_FOOT, RF_FOOT"   // 左前足 vs 右前足
-    [5] "LH_FOOT, RH_FOOT"   // 左后足 vs 右后足
-    [6] "LF_FOOT, LH_FOOT"   // 左前足 vs 左后足
-    [7] "RF_FOOT, RH_FOOT"   // 右前足 vs 右后足
+    [0] "LF_calf, RF_calf"   ; 左前小腿 vs 右前小腿
+    [1] "LH_calf, RH_calf"   ; 左后小腿 vs 右后小腿
+    [2] "LF_calf, LH_calf"   ; 左前小腿 vs 左后小腿 (对角前-后)
+    [3] "RF_calf, RH_calf"   ; 右前小腿 vs 右后小腿
+    [4] "LF_FOOT, RF_FOOT"   ; 左前足 vs 右前足
+    [5] "LH_FOOT, RH_FOOT"   ; 左后足 vs 右后足
+    [6] "LF_FOOT, LH_FOOT"   ; 左前足 vs 左后足
+    [7] "RF_FOOT, RH_FOOT"   ; 右前足 vs 右后足
   }
 
-  minimumDistance  0.05    // 最小安全距离 [m], 小于此距离开始触发惩罚
+  minimumDistance  0.05    ; 最小安全距离 [m], 小于此距离开始触发惩罚
 
-  // 松弛对数障碍参数
-  mu      1e-2              // 障碍权重 (比摩擦锥小, 自碰撞不太危险)
-  delta   1e-3              // 松弛宽度
+  ; 松弛对数障碍参数
+  mu      1e-2              ; 障碍权重 (比摩擦锥小, 自碰撞不太危险)
+  delta   1e-3              ; 松弛宽度
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                      Whole Body Control (WBC) 参数                           //
-//  MPC 输出足端力 + 摆动轨迹 → WBC 计算关节力矩 → 发送给仿真/实际机器人         //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                      Whole Body Control (WBC) 参数                           ;
+;  MPC 输出足端力 + 摆动轨迹 → WBC 计算关节力矩 → 发送给仿真/实际机器人         ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-// 关节力矩限制 (用于 WBC 二次规划中的力矩约束)
+; 关节力矩限制 (用于 WBC 二次规划中的力矩约束)
 ; Whole body control
 torqueLimitsTask
 {
@@ -380,39 +380,39 @@ torqueLimitsTask
    (2,0)  330.5     ; KFE  -- 膝关节最大力矩 [Nm]
 }
 
-// WBC 中的摩擦锥任务 (将足端力约束在摩擦锥内映射到关节力矩空间)
+; WBC 中的摩擦锥任务 (将足端力约束在摩擦锥内映射到关节力矩空间)
 frictionConeTask
 {
-  frictionCoefficient    0.3   // 与 MPC 中保持一致
+  frictionCoefficient    0.3   ; 与 MPC 中保持一致
 }
 
-// 摆动腿 PD 跟踪 (WBC 对摆动腿位置跟踪的刚度/阻尼)
+; 摆动腿 PD 跟踪 (WBC 对摆动腿位置跟踪的刚度/阻尼)
 swingLegTask
 {
-    kp                   350   // 位置误差比例增益 [Nm/rad 等效], 越大摆动腿跟踪越准
-    kd                   37    // 速度误差阻尼增益 [Nm·s/rad 等效], 防止振荡
+    kp                   350   ; 位置误差比例增益 [Nm/rad 等效], 越大摆动腿跟踪越准
+    kd                   37    ; 速度误差阻尼增益 [Nm·s/rad 等效], 防止振荡
 }
 
-// WBC 各子任务的权重 (WBC 用QP求解: min sum(w_i * ||task_i||^2))
+; WBC 各子任务的权重 (WBC 用QP求解: min sum(w_i * ||task_i||^2))
 weight
 {
-    swingLeg        100        // 摆动腿跟踪权重 (权重最高, 因为摆动腿位置最影响步态)
-    baseAccel       1          // 基座加速度惩罚权重 (平滑基座运动)
-    contactForce    0.01       // 接触力跟踪权重 (较小, 因为力分布可灵活调整)
+    swingLeg        100        ; 摆动腿跟踪权重 (权重最高, 因为摆动腿位置最影响步态)
+    baseAccel       1          ; 基座加速度惩罚权重 (平滑基座运动)
+    contactForce    0.01       ; 接触力跟踪权重 (较小, 因为力分布可灵活调整)
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//                      卡尔曼滤波状态估计参数                                  //
-//  融合 IMU (加速度+角速度) 和足端接触传感器的数据, 估计基座位姿和速度           //
-////////////////////////////////////////////////////////////////////////////////
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                      卡尔曼滤波状态估计参数                                  ;
+;  融合 IMU (加速度+角速度) 和足端接触传感器的数据, 估计基座位姿和速度           ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; State Estimation
 kalmanFilter
 {
-    footRadius                  0.02   // 足端球形半径 [m], 用于接触高度测量模型
-    imuProcessNoisePosition     0.02   // IMU 位置过程噪声协方差 (m²), 大=更信任测量
-    imuProcessNoiseVelocity     0.02   // IMU 速度过程噪声协方差
-    footProcessNoisePosition    0.002  // 足端位置过程噪声 (较小, 因为运动学相对精确)
-    footSensorNoisePosition     0.005  // 足端位置测量噪声协方差
-    footSensorNoiseVelocity     0.1    // 足端速度测量噪声协方差 (较大, 因为微分放大噪声)
-    footHeightSensorNoise       0.01   // 足端高度测量噪声协方差
+    footRadius                  0.02   ; 足端球形半径 [m], 用于接触高度测量模型
+    imuProcessNoisePosition     0.02   ; IMU 位置过程噪声协方差 (m²), 大=更信任测量
+    imuProcessNoiseVelocity     0.02   ; IMU 速度过程噪声协方差
+    footProcessNoisePosition    0.002  ; 足端位置过程噪声 (较小, 因为运动学相对精确)
+    footSensorNoisePosition     0.005  ; 足端位置测量噪声协方差
+    footSensorNoiseVelocity     0.1    ; 足端速度测量噪声协方差 (较大, 因为微分放大噪声)
+    footHeightSensorNoise       0.01   ; 足端高度测量噪声协方差
 }
