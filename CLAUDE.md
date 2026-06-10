@@ -2,34 +2,43 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workspace
+
+- **Active workspace**: `~/creeper_ws/src/Quadruped-Control-OCS2-ROS2/` (Creeper development)
+- **Reference template**: `~/quadruped_mpc_ws/` (B1 working copy — do NOT modify)
+
 ## Build & Run
 
 ```bash
-# One-time: source ROS2 Humble
+# ⚠️ 每次启动仿真前必须：
+#   1. 关闭上一次的 MuJoCo 仿真渲染窗口
+#   2. 清理所有相关进程
+pkill -9 -f "mujoco_simulator\|legged_robot_sqp_mpc\|user_command_node\|ros2 launch\|gnome-terminal"
+
+# Convenience script (handles all sourcing + env)
+~/creeper_ws/run.sh creeper
+~/creeper_ws/run.sh b1
+
+# Manual launch
+cd ~/creeper_ws/src/Quadruped-Control-OCS2-ROS2
 source /opt/ros/humble/setup.bash
-
-# Build (from this directory)
-cd /home/cxk/quadruped_mpc_ws/src/Quadruped-Control-OCS2-ROS2
-colcon build --symlink-install --continue-on-error
-
-# ocs2_centroidal_model uses CppAD JIT — OOMs on parallel compile. If it fails with "signal terminated cc1plus":
-rm -rf build/ocs2_centroidal_model
-MAKEFLAGS="-j1" colcon build --symlink-install --packages-select ocs2_centroidal_model
-
-# Source and launch (B1 as default)
 source install/setup.bash
 export LD_LIBRARY_PATH=$(pwd)/mujoco/mujoco-3.2.2/lib:$LD_LIBRARY_PATH
-ros2 launch launch_simulation legged_robot_sqp.launch.py robot_type:=b1
-
-# Creeper
 ros2 launch launch_simulation legged_robot_sqp.launch.py robot_type:=creeper
+```
+
+```bash
+# Build from workspace
+colcon build --symlink-install --continue-on-error
+
+# CppAD OOM fix — ocs2_centroidal_model and motion_control may both OOM on parallel compile:
+rm -rf build/ocs2_centroidal_model build/motion_control
+MAKEFLAGS="-j1" colcon build --symlink-install --packages-select ocs2_centroidal_model motion_control
 ```
 
 ## Architecture
 
-This directory is a colcon workspace located at `~/quadruped_mpc_ws/src/Quadruped-Control-OCS2-ROS2/`. The workspace root is `~/quadruped_mpc_ws/`; all build/install artifacts live here (NOT in the workspace root).
-
-Three ROS2 nodes launched together:
+Colcon workspace at `~/creeper_ws/src/Quadruped-Control-OCS2-ROS2/`. Three ROS2 nodes:
 
 1. **mujoco_simulator** — MuJoCo physics engine at 1000Hz. Reads MJCF/URDF models from `models/<robot>/urdf/`. During the first 2s (`Start_simulate_=true`), applies PD control to hold initial pose. After MPC starts, switches to torque commands from WBC.
 
@@ -80,5 +89,33 @@ Three ROS2 nodes launched together:
 | Standing comHeight | ~0.54m | ~0.35m |
 | Joint torque limit | 91-140 Nm | 23.7 Nm |
 
+### Render visibility groups
+- `MujocoSimulation.cpp` only enables `geomgroup[0,1,2]`. Geoms with `group="3"` are invisible. Use `group="0"` for always-visible collision geoms.
+
+### Creeper free-fall phase
+- During `Start_simulate_=true` (before MPC activates), NO PD or WBC control is applied — pure MuJoCo physics.
+- Trunk initial height `z=0.455` gives ~1.5mm foot clearance for a natural settling.
+- Belly box at `pos="0 0 0.03" size=...0.03` (top at z=0.06m) catches the body before it lies completely flat.
+- Soft contact params (`solref="0.05 0.9" solimp="0.7 0.9 0.005"`) absorb impact energy to prevent bounce-induced leg clumping.
+- **DO NOT add `ref` (qpos0) to Creeper joints** — it breaks the control pipeline (previous attempts failed).
+
+## 开发铁律：模型先行，控制后行
+
+**这是整个项目最重要的原则。忽视这条原则已经多次导致工程被毁。**
+
+控制算法（MPC/WBC）的数学基础是精确的系统模型——质心动量模型、运动学模型、动力学参数。如果模型是错的，所有控制调试都是白费功夫，只会引入更多 hack，最终让工程无法维护。
+
+B1 和 Creeper 的模型差距巨大（质量 ~11.7kg vs ~55kg，腿长 0.43m vs 0.70m，comHeight ~0.35m vs ~0.54m），Creeper 的 MPC 配置（task.info, reference.info）中大量参数是从 B1 复制过来的，不能直接信任。
+
+### 模型验证清单（调试 MPC/WBC 之前必须逐项完成）
+
+1. **URDF 物理参数验证**：质量、惯量、质心位置是否与实际机器人一致
+2. **运动学验证（FK）**：站立姿态下足端位置是否正确，comHeight 是否与 reference.info 一致
+3. **质心动量模型验证**：Pinocchio 从 URDF 计算的 centroidal dynamics（总质量、CoM、inertia）是否与 URDF 一致
+4. **MPC 配置一致性**：task.info 中的 `comHeight`、`mass`、`inertia` 等参数是否从 URDF/真实模型导出，而非随意设置
+5. **WBC 配置一致性**：contact points 位置、摩擦锥参数、权重矩阵是否合理
+
+**没有通过模型验证之前，禁止修改 MPC 或 WBC 代码。**
+
 ### WBC failure mode
-- Creeper's qpOASES QP solver fails with "Maximum number of working set recalculations performed" (nWSR=20). Root cause: model parameter mismatch (mass, inertia, comHeight) between MPC config and URDF causes infeasible QP constraints. Fix the config parameters before touching the WBC code.
+- Creeper 的 qpOASES QP solver 在上一次尝试中失败（nWSR=20）。根因极可能是模型参数不匹配（comHeight=0.38 vs 实际~0.35，mass/inertia 从 B1 复制），导致 QP 约束不可行。**必须先完成模型验证清单，再考虑碰 WBC 代码。**
