@@ -64,6 +64,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_mpc/MPC_MRT_Interface.h>
 #include <ocs2_mpc/SystemObservation.h>
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>
+#include <fstream>
+
 #include <ocs2_core/misc/Benchmark.h>
 #include <ocs2_core/misc/LoadData.h>
 
@@ -144,6 +146,10 @@ private:
     ocs2::benchmark::RepeatedTimer wbcTimer_;
     int MpcCount_; // using count to control different frequency of mpc and wbc
     bool StateEstimate_; //use state estimate (true) or use real state from simulator (false)
+
+    // Data logging
+    std::ofstream dataLog_;
+    int logCounter_ = 0;
     
 
   /*

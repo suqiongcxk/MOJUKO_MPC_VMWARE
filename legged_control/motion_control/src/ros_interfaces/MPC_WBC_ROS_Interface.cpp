@@ -150,6 +150,14 @@ void MPC_WBC_ROS_Interface::launchNodes()
       std::bind(&MPC_WBC_ROS_Interface::simulatorStateCallback, this, std::placeholders::_1));
   }
 
+  // Open data log file (overwrite = clear previous)
+  dataLog_.open("/tmp/creeper_data.csv", std::ios::out | std::ios::trunc);
+  dataLog_ << "time,base_x,base_y,base_z,base_vx,base_vy,base_vz";
+  for (int i = 0; i < 12; i++) dataLog_ << ",jp" << i;
+  for (int i = 0; i < 12; i++) dataLog_ << ",jv" << i;
+  for (int i = 0; i < 12; i++) dataLog_ << ",tau" << i;
+  dataLog_ << std::endl;
+
   // before spin, use service to start control
   controlStartingClient_ = node_->create_client<legged_msgs::srv::StartControl>("start_control");
 
@@ -293,6 +301,20 @@ void MPC_WBC_ROS_Interface::simulatorStateCallback(
 
   publishJointControl(torque,posDes,velDes);
   publishCurrentObservation();
+
+  // Data logging: write every 10th callback (~50Hz at 500Hz WBC)
+  logCounter_++;
+  if (dataLog_.is_open() && (logCounter_ % 10 == 0)) {
+    dataLog_ << currentObservation_.time;
+    for (size_t i = 0; i < 3; i++) dataLog_ << "," << msg->base_pose_values[i];
+    for (size_t i = 0; i < 3; i++) dataLog_ << "," << msg->base_linvel_values[i];
+    for (size_t i = 0; i < 12 && i < msg->joint_position_values.size(); i++)
+      dataLog_ << "," << msg->joint_position_values[i];
+    for (size_t i = 0; i < 12 && i < msg->joint_velocity_values.size(); i++)
+      dataLog_ << "," << msg->joint_velocity_values[i];
+    for (int i = 0; i < 12; i++) dataLog_ << "," << torque(i);
+    dataLog_ << std::endl;
+  }
 }
 
 /******************************************************************************************************/
@@ -474,6 +496,25 @@ void MPC_WBC_ROS_Interface::simulatorSensorCallback(
 
   publishJointControl(torque,posDes,velDes);
   publishCurrentObservation();
+
+  // Data logging: write every 10th callback (~50Hz)
+  logCounter_++;
+  if (dataLog_.is_open() && (logCounter_ % 10 == 0)) {
+    dataLog_ << currentObservation_.time;
+    // base position from state (indices 6-8)
+    for (int i = 6; i <= 8; i++) dataLog_ << "," << currentObservation_.state(i);
+    // base velocity from state (indices 0-2 = v_com)
+    for (int i = 0; i <= 2; i++) dataLog_ << "," << currentObservation_.state(i);
+    // joint positions from message
+    for (size_t i = 0; i < 12 && i < msg->joint_position_values.size(); i++)
+      dataLog_ << "," << msg->joint_position_values[i];
+    // joint velocities from message
+    for (size_t i = 0; i < 12 && i < msg->joint_velocity_values.size(); i++)
+      dataLog_ << "," << msg->joint_velocity_values[i];
+    // WBC output torques
+    for (int i = 0; i < 12; i++) dataLog_ << "," << torque(i);
+    dataLog_ << std::endl;
+  }
 }
 
 /******************************************************************************************************/

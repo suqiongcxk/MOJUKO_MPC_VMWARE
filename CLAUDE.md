@@ -13,7 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # ⚠️ 每次启动仿真前必须：
 #   1. 关闭上一次的 MuJoCo 仿真渲染窗口
 #   2. 清理所有相关进程
+# 清理所有仿真进程 + user_command 窗口
 pkill -9 -f "mujoco_simulator\|legged_robot_sqp_mpc\|user_command_node\|ros2 launch\|gnome-terminal"
+# 确认清理干净
+pgrep -af "mujoco_simulator|legged_robot|user_command_node|ros2.*launch.*legged" || echo "all clear"
 
 # Convenience script (handles all sourcing + env)
 ~/creeper_ws/run.sh creeper
@@ -119,3 +122,44 @@ B1 和 Creeper 的模型差距巨大（质量 ~11.7kg vs ~55kg，腿长 0.43m vs
 
 ### WBC failure mode
 - Creeper 的 qpOASES QP solver 在上一次尝试中失败（nWSR=20）。根因极可能是模型参数不匹配（comHeight=0.38 vs 实际~0.35，mass/inertia 从 B1 复制），导致 QP 约束不可行。**必须先完成模型验证清单，再考虑碰 WBC 代码。**
+
+## 仿真数据记录与分析
+
+### 数据文件
+每次仿真自动记录关键数据到 `/tmp/creeper_data.csv`（50Hz）。CSV 列：
+
+`time, base_x, base_y, base_z, base_vx, base_vy, base_vz, jp0..jp11, jv0..jv11, tau0..tau11`
+
+### 调试规则（铁律）
+
+1. **每轮仿真结束后必须关闭仿真窗口和所有相关进程**，否则残留进程会严重影响下一轮仿真。特别要关闭 user_command 的 gnome-terminal 窗口。
+2. **每进行 5 轮仿真调试后，必须做阶段性总结**：记录踩过的坑、发现的问题、当前的进展。
+3. **调试目标**：让 Creeper 从趴下状态自主站立并维持在合理高度（comHeight≈0.2m）。
+4. **每次修改代码/配置后必须重新编译再测试**。
+
+### 调试流程
+
+```bash
+# 1. 启动前清理旧进程和窗口
+# 清理所有仿真进程 + user_command 窗口
+pkill -9 -f "mujoco_simulator\|legged_robot_sqp_mpc\|user_command_node\|ros2 launch\|gnome-terminal"
+# 确认清理干净
+pgrep -af "mujoco_simulator|legged_robot|user_command_node|ros2.*launch.*legged" || echo "all clear"
+
+# 2. 清空旧数据，启动仿真
+rm -f /tmp/creeper_data.csv
+~/creeper_ws/run.sh creeper
+
+# 3. 运行一段时间后关闭仿真窗口和进程
+# 清理所有仿真进程 + user_command 窗口
+pkill -9 -f "mujoco_simulator\|legged_robot_sqp_mpc\|user_command_node\|ros2 launch\|gnome-terminal"
+# 确认清理干净
+pgrep -af "mujoco_simulator|legged_robot|user_command_node|ros2.*launch.*legged" || echo "all clear"
+
+# 4. 分析数据
+#   - comHeight = base_z + delta_com_base (delta ≈ -0.034)
+#   - 检查力矩是否触及 ±23.7Nm 上限
+#   - 检查关节角度是否在范围内
+#   - 检查 base 是否稳定在目标高度附近
+head -5 /tmp/creeper_data.csv
+```

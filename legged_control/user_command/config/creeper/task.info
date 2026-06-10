@@ -4,7 +4,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 centroidalModelType             0
-stateEstimate  true
+stateEstimate  false
 
 legged_robot_interface
 {
@@ -127,7 +127,7 @@ rollout
 
 mpc
 {
-  timeHorizon                     1.0
+  timeHorizon                     3.0   ; ↑ from 2.0: even more time for gradual standing
   solutionTimeWindow              -1
   coldStart                       false
   debugPrint                      false
@@ -151,30 +151,30 @@ initialState
 
    (6,0)  0.0     ; p_base_x
    (7,0)  0.0     ; p_base_y
-   (8,0)  0.335   ; p_base_z (Creeper 站立, 脚着地时 CoM≈0.30m)
+   (8,0)  0.234   ; p_base_z (comHeight=0.20)
    (9,0)  0.0     ; yaw
    (10,0) 0.0     ; pitch
    (11,0) 0.0     ; roll
 
    ;; Front-Left  leg: FL_hip_joint, FL_thigh_joint, FL_calf_joint ;;
-   (12,0) -0.20   ; FL HAA (hip y-rotation, 略外展)
-   (13,0)  0.72   ; FL HFE (thigh y-rotation, 向前)
-   (14,0) -1.44   ; FL KFE (calf y-rotation, 膝盖弯曲 ~82°)
+   (12,0) -0.20   ; FL HAA
+   (13,0)  0.0    ; FL HFE (crouch posture, thigh near vertical)
+   (14,0) -1.3    ; FL KFE
 
    ;; Front-Right leg: FR_hip_joint, FR_thigh_joint, FR_calf_joint ;;
-   (15,0)  0.20   ; FR HAA (略内收)
-   (16,0)  0.72   ; FR HFE
-   (17,0) -1.44   ; FR KFE
+   (15,0)  0.20   ; FR HAA
+   (16,0)  0.0    ; FR HFE
+   (17,0) -1.3    ; FR KFE
 
    ;; Rear-Left   leg: RL_hip_joint, RL_thigh_joint, RL_calf_joint ;;
    (18,0) -0.20   ; RL HAA
-   (19,0)  0.72   ; RL HFE
-   (20,0) -1.44   ; RL KFE
+   (19,0)  0.0    ; RL HFE
+   (20,0) -1.3    ; RL KFE
 
    ;; Rear-Right  leg: RR_hip_joint, RR_thigh_joint, RR_calf_joint ;;
    (21,0)  0.20   ; RR HAA
-   (22,0)  0.72   ; RR HFE
-   (23,0) -1.44   ; RR KFE
+   (22,0)  0.0    ; RR HFE
+   (23,0) -1.3    ; RR KFE
 }
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -196,7 +196,7 @@ Q
   ;; 基座位姿 [6-11] ;;
   (6,6)   1000.0    ; p_base_x
   (7,7)   1000.0    ; p_base_y
-  (8,8)   1500.0    ; p_base_z (最大权重, 保持身高)
+  (8,8)   1500.0    ; p_base_z (restore: strong height tracking for stability)
   (9,9)   100.0     ; yaw
   (10,10) 500.0     ; pitch
   (11,11) 300.0     ; roll
@@ -303,9 +303,9 @@ swingLegTask
 
 weight
 {
-    swingLeg        100
-    baseAccel       1
-    contactForce    0.01
+    swingLeg        20      ; ↓ from 100: reduce swing dominance, free torque for base stability
+    baseAccel       10      ; ↑ from 5: stronger base stability to prevent falling
+    contactForce    0.5     ; ↑ from 0.01: tighter force tracking needed when torque margin is small
 }
 
 ; State Estimation
