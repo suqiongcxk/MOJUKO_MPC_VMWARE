@@ -24,8 +24,10 @@
     <light directional="true" diffuse=".4 .4 .4" specular="0.1 0.1 0.1" pos="0 0 5.0" dir="0 0 -1" castshadow="false" />
     <light directional="true" diffuse=".6 .6 .6" specular="0.2 0.2 0.2" pos="0 0 4" dir="0 0 -1" />
     <geom name="floor" pos="0 0 0" size="15 15 1" type="plane" material="matplane" margin="0.001" condim="3" friction="1 0.005 0.0001" />
+    <!-- floor box under COM to prevent body from lying completely flat -->
+    <geom type="box" size="0.12 0.06 0.03" pos="0 0 0.03" group="0" rgba="0 0 1 0.5"/>
 
-    <body name="trunk" pos="0 0 0.35">
+    <body name="trunk" pos="0 0 0.455">
       <site name="imu_sensor_site" pos="0 0 0" />
       <inertial pos="-0.000212244 3.881e-05 -0.020479" quat="1 0 0 0" mass="6" diaginertia="0.011597 0.012694 0.017601"/>
       <joint name="floating_base" type="free" limited="false" actuatorfrclimited="false"/>
