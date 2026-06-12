@@ -1,4 +1,0 @@
-bool start
----
-bool success
-legged_msgs/SimulatorStateData state

@@ -44,15 +44,6 @@ private:
     GLFWwindow* window_;
     double timestep_;
 
-    // 站立
-    bool standing_ = false;
-    bool stand_triggered_ = false;
-    double stand_elapsed_ = 0.0;
-    double settle_time_ = 2.0;
-    double stand_duration_ = 4.0;
-    double start_qpos_[12];
-    double target_qpos_[12];
-
     static bool button_left, button_middle, button_right;
     static double lastx, lasty;
 };

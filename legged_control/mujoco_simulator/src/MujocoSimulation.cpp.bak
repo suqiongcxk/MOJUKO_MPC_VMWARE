@@ -1,6 +1,5 @@
 #include "mujoco_simulator/MujocoSimulation.hpp"
 #include "SimpleConfig.h"
-#include <fstream>
 
 MujocoSimulation* MujocoSimulation::instance_ = nullptr;
 bool MujocoSimulation::button_left = false;

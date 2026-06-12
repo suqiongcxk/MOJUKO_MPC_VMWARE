@@ -3,22 +3,11 @@
 <package format="3">
   <name>user_command</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Config files for Creeper/B1 simulation</description>
   <maintainer email="2805140006@qq.com">zhx</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  
-  <build_depend>rclcpp</build_depend>
-  <exec_depend>rclcpp</exec_depend>
-  
-  <depend>legged_msgs</depend>
-  <depend>ocs2_core</depend>
-  <depend>ocs2_mpc</depend>
-  <depend>motion_control</depend>
-
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

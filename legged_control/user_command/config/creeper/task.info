@@ -4,7 +4,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 centroidalModelType             0
-stateEstimate  true
+stateEstimate  false
 
 legged_robot_interface
 {

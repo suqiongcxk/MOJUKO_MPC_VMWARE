@@ -1,0 +1,12 @@
+Thu Jun 11 16:27:09 2026
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 1.5390.
+
+Thu Jun 11 16:43:08 2026
+ERROR: Failed to load model: /home/cxk/creeper_ws/src/Quadruped-Control-OCS2-ROS2/install/mujoco_simulator/share/mujoco_simulator/models/creeper/urdf/robot.xml
+
+Thu Jun 11 16:43:18 2026
+ERROR: Failed to load model: /home/cxk/creeper_ws/src/Quadruped-Control-OCS2-ROS2/install/mujoco_simulator/share/mujoco_simulator/models/creeper/urdf/robot.xml
+
+Thu Jun 11 16:43:39 2026
+ERROR: Failed to load model: /home/cxk/creeper_ws/src/Quadruped-Control-OCS2-ROS2/install/mujoco_simulator/share/mujoco_simulator/models/creeper/urdf/robot.xml
+
