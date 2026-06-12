@@ -29,6 +29,10 @@
 #include "glfw_adapter.h"
 #include "simulate.h"
 #include "array_safety.h"
+#include "mpc_shm.h"
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define MUJOCO_PLUGIN_DIR "mujoco_plugin"
 
@@ -56,6 +60,8 @@ const int kErrorLength = 1024;          // 加载错误字符串长度
 // 模型和数据
 mjModel* m = nullptr;
 mjData* d = nullptr;
+MpcShmLayout* shm = nullptr;     // MPC 共享内存
+uint64_t last_control_seq = 0;   // 上次读到的控制序列号
 
 using Seconds = std::chrono::duration<double>;
 
@@ -213,47 +219,129 @@ const char* Diverged(int disableflags, const mjData* d) {
 //---------------------------------------- 控制回调 -----------------------------------------
 
 // mjcb_control 回调：MuJoCo 在 mj_step1 之后、mj_step2 之前自动调用
-	// 你只需填好 d->ctrl[0..11]，MuJoCo 自动把力矩施加到对应关节
+// 你只需填好 d->ctrl[0..11]，MuJoCo 自动把力矩施加到对应关节
+void myController(const mjModel* m, mjData* d) {
+  // ========== 写传感器数据到共享内存 ==========
+  if (shm) {
+    shm->simulation_time = d->time;
+    for (int i = 0; i < 4; i++)  shm->base_quat[i]        = d->sensordata[34 + i];
+    for (int i = 0; i < 3; i++)  shm->base_position[i]    = d->sensordata[38 + i];
+    for (int i = 0; i < 3; i++)  shm->base_angular_vel[i] = d->sensordata[41 + i];
+    for (int i = 0; i < 3; i++)  shm->base_linear_vel[i]  = d->sensordata[44 + i];
+    for (int i = 0; i < 12; i++) shm->joint_position[i]   = d->sensordata[10 + i];
+    for (int i = 0; i < 12; i++) shm->joint_velocity[i]   = d->sensordata[22 + i];
 
-	//ID分配是顺时针从上到下分配的，类似轮式的民名规则
-	void myController(const mjModel* m, mjData* d) {
-	  // 站立目标关节角（12 个，顺序 LF→RF→LH→RH）
-	  static const double stand_qpos[12] = {
-	     0.0, 1.3398, -2.1068,   // LF: HAA=0, HFE=77°, KFE=-121°
-	     0.0, 1.3398, -2.1068,   // RF
-	     0.0, 1.3398, -2.1068,   // LH
-	     0.0, 1.3398, -2.1068    // RH
-	  };
+    // 足端触地检测：z 位置接近地面 (<= 5mm)
+    static int foot_body_ids[4] = {-1, -1, -1, -1};
+    static const char* foot_names[4] = {"LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"};
+    static bool diag_printed = false;
+    for (int i = 0; i < 4; i++) {
+      if (foot_body_ids[i] < 0)
+        foot_body_ids[i] = mj_name2id(m, mjOBJ_BODY, foot_names[i]);
+      int bid = foot_body_ids[i];
+      double fz = (bid >= 0) ? d->xpos[bid * 3 + 2] : -999.0;
+      shm->contact_flags[i] = (bid >= 0 && fz <= 0.020) ? 1 : 0;
+      if (!diag_printed && shm->control_ready.load()) {
+        std::printf("[Diag] %s: bid=%d z=%.4f flag=%d\n",
+                    foot_names[i], bid, fz, (int)shm->contact_flags[i]);
+      }
+    }
+    if (!diag_printed && shm->control_ready.load()) {
+      diag_printed = true;
+      std::printf("[Diag] body_z=%.4f\n", d->xpos[mj_name2id(m, mjOBJ_BODY, "trunk") * 3 + 2]);
+    }
 
-	  if(d->time >3.0)
-	  {
-	  // 蹲姿初始关节角
-	  static const double crouch_qpos[12] = {
-	    d->qpos[7], d->qpos[8], d->qpos[9],   // LF
-	    d->qpos[10], d->qpos[11], d->qpos[12],   // RF
-	    d->qpos[13], d->qpos[14], d->qpos[15],   // LH
-	    d->qpos[16], d->qpos[17], d->qpos[18]    // RH
-	  };
+    shm->sensor_sequence.fetch_add(1, std::memory_order_release);
+  }
 
-	  // 3 秒 smoothstep 插值：alpha = clamp(time/3, 0, 1)
-	  double alpha = (d->time - 3.0) / 3.0;
-	  if (alpha > 1.0) alpha = 1.0;
-	  double s = alpha * alpha * (3.0 - 2.0 * alpha);  // smoothstep 缓入缓出
+  // ========== 读取 MPC 控制指令（当前：只观察，不施加力矩） ==========
+  bool mpc_ok = false;
+  static const bool use_mpc = true;   // MPC 接管控制
+  if (use_mpc && shm && shm->control_ready.load(std::memory_order_acquire)) {
+    uint64_t seq = shm->control_sequence.load(std::memory_order_acquire);
+    if (seq > 0) {
+      // WBC 力矩标定系数（从力矩对比实测，修正 URDF/MJCF 幅值偏差）
+      static const double calib[12] = {
+          1.014, 0.898, 0.999,   // LF_HAA, LF_HFE, LF_KFE
+          0.824, 0.796, 0.786,   // RF_HAA, RF_HFE, RF_KFE
+          1.533, 1.024, 1.258,   // LH_HAA, LH_HFE, LH_KFE
+          0.995, 0.898, 0.988    // RH_HAA, RH_HFE, RH_KFE
+      };
 
-	  // PD 增益
-	  double kp = 100.0;  // 比例增益（位置误差 → 力矩）
-	  double kd = 3.0;    // 阻尼增益（抑制速度振荡）
+      // 控制律：首帧冻结 MPC 前馈 + PD 跟踪固定站立位姿
+      static double frozen_ff[12] = {0};
+      static bool ff_frozen = false;
+      static const double pd_target[12] = {
+         0.0, 1.0398, -2.1068,   // LF
+         0.0, 1.0398, -2.1068,   // RF
+         0.0, 1.0398, -2.1068,   // LH
+         0.0, 1.0398, -2.1068    // RH
+      };
 
-	  for (int i = 0; i < 12; i++) {
-	    double target = crouch_qpos[i] + s * (stand_qpos[i] - crouch_qpos[i]);
-	    double pos = d->qpos[7 + i];   // 当前关节角度
-	    double vel = d->qvel[6 + i];   // 当前关节角速度
-	    d->ctrl[i] = kp * (target - pos) - kd * vel;
-	  }
-	  }
+      if (!ff_frozen) {
+        for (int i = 0; i < 12; i++)
+          frozen_ff[i] = calib[i] * shm->joint_torque[i];
+        ff_frozen = true;
+        std::printf("[MPC] 前馈力矩已冻结\n");
+      }
 
-	}
+      // 冻结前馈 + PD 跟踪站立位姿
+      for (int i = 0; i < 12; i++) {
+        double vel = d->qvel[6 + i];
+        d->ctrl[i] = frozen_ff[i] + 100.0 * (pd_target[i] - d->qpos[7 + i]) - 3.0 * vel;
+      }
 
+      last_control_seq = seq;
+      mpc_ok = true;
+    }
+  }
+
+  // ========== PD 站立回退（MPC 未就绪时） ==========
+  if (!mpc_ok) {
+    static const double stand_qpos[12] = {
+       0.0, 1.0398, -2.1068,   // LF
+       0.0, 1.0398, -2.1068,   // RF
+       0.0, 1.0398, -2.1068,   // LH
+       0.0, 1.0398, -2.1068    // RH
+    };
+
+    if (d->time > 3.0) {
+      static const double crouch_qpos[12] = {
+        d->qpos[7],  d->qpos[8],  d->qpos[9],
+        d->qpos[10], d->qpos[11], d->qpos[12],
+        d->qpos[13], d->qpos[14], d->qpos[15],
+        d->qpos[16], d->qpos[17], d->qpos[18]
+      };
+
+      double alpha = (d->time - 3.0) / 3.0;
+      if (alpha > 1.0) alpha = 1.0;
+      double s = alpha * alpha * (3.0 - 2.0 * alpha);
+
+      double kp = 100.0, kd = 3.0;
+      for (int i = 0; i < 12; i++) {
+        double target = crouch_qpos[i] + s * (stand_qpos[i] - crouch_qpos[i]);
+        d->ctrl[i] = kp * (target - d->qpos[7 + i]) - kd * d->qvel[6 + i];
+      }
+
+      // 诊断：对比 PD 力矩 vs WBC 前馈力矩（单次）
+      static bool cmp_printed = false;
+      if (!cmp_printed && shm && shm->control_ready.load()) {
+        cmp_printed = true;
+        std::printf("\n=== 力矩对比: PD(真值) vs WBC(模型) ===\n");
+        std::printf("%8s  %10s  %10s  %7s\n", "关节", "PD torque", "WBC ff", "差值");
+        const char* jn[12] = {"LF_HAA","LF_HFE","LF_KFE","RF_HAA","RF_HFE","RF_KFE",
+                              "LH_HAA","LH_HFE","LH_KFE","RH_HAA","RH_HFE","RH_KFE"};
+        for (int j = 0; j < 12; j++) {
+          double pd_tau = d->ctrl[j];
+          double wbc_ff  = shm->joint_torque[j];
+          std::printf("%8s  %+10.4f  %+10.4f  %+7.2f%%\n",
+              jn[j], pd_tau, wbc_ff,
+              (pd_tau != 0) ? 100.0 * (wbc_ff - pd_tau) / std::abs(pd_tau) : 0.0);
+        }
+      }
+    }
+  }
+}
 mjModel* LoadModel(const char* file, mj::Simulate& sim) {
   // 需要此副本，以便下面的 mju::strlen 调用能编译通过
   char filename[mj::Simulate::kMaxFilenameLength];
@@ -518,6 +606,29 @@ __attribute__((used, visibility("default"))) extern "C" void _mj_rosettaError(co
 }
 #endif
 
+// 初始化共享内存，失败返回 false（不影响 PD 回退模式运行）
+bool InitMpcShm() {
+  int fd = shm_open("/mpc_control_shm", O_RDWR | O_CREAT, 0666);
+  if (fd < 0) {
+    std::fprintf(stderr, "[MPC] shm_open failed: %s\n", std::strerror(errno));
+    return false;
+  }
+  if (ftruncate(fd, sizeof(MpcShmLayout)) < 0) {
+    std::fprintf(stderr, "[MPC] ftruncate failed: %s\n", std::strerror(errno));
+    return false;
+  }
+  void* ptr = mmap(nullptr, sizeof(MpcShmLayout), PROT_READ | PROT_WRITE,
+                   MAP_SHARED, fd, 0);
+  if (ptr == MAP_FAILED) {
+    std::fprintf(stderr, "[MPC] mmap failed: %s\n", std::strerror(errno));
+    return false;
+  }
+  std::memset(ptr, 0, sizeof(MpcShmLayout));
+  shm = static_cast<MpcShmLayout*>(ptr);
+  std::printf("[MPC] 共享内存已创建 (/mpc_control_shm, %zu bytes)\n", sizeof(MpcShmLayout));
+  return true;
+}
+
 // 运行事件循环
 int main(int argc, char** argv) {
 
@@ -557,6 +668,9 @@ int main(int argc, char** argv) {
   if (argc >  1) {
     filename = argv[1];
   }
+
+  // 初始化共享内存（失败不影响 PD 回退模式）
+  InitMpcShm();
 
   // 注册控制回调（必须在 PhysicsThread 之前注册）
   mjcb_control = myController;
