@@ -10,4 +10,28 @@ render
   visualize_contacts true
   tracking_base true
   render_frequency 60
+<<<<<<< HEAD
+=======
+}
+
+pid
+{
+    kp                   1000
+    kd                   10
+>>>>>>> ea5c007 (新增 mpc_standalone：ROS-free MPC+WBC 独立进程)
+}
+
+stand_up
+{
+    duration              0.5
+    stage1_duration       1.5
+    free_fall_duration    0.001
+    kp                    90.0
+    kd                    25.0
+    torque_limit          10.0
+}
+
+debug
+{
+    enable_mpc             false
 }

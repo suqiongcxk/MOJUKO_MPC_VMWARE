@@ -151,30 +151,27 @@ initialState
 
    (6,0)  0.0     ; p_base_x
    (7,0)  0.0     ; p_base_y
-   (8,0)  0.38    ; p_base_z (Creeper 站立高度 ~0.38m)
-   (9,0)  0.0     ; yaw
-   (10,0) 0.0     ; pitch
-   (11,0) 0.0     ; roll
+   (8,0)  0.22    ; p_base_z (Creeper PD 站立实测高度)
 
-   ;; Front-Left  leg: FL_hip_joint, FL_thigh_joint, FL_calf_joint ;;
-   (12,0) -0.20   ; FL HAA (hip y-rotation, 略外展)
-   (13,0)  0.72   ; FL HFE (thigh y-rotation, 向前)
-   (14,0) -1.44   ; FL KFE (calf y-rotation, 膝盖弯曲 ~82°)
+   ;; Front-Left leg: FL_HAA, FL_HFE, FL_KFE ;;
+   (12,0)  0.00   ; FL HAA
+   (13,0)  1.04   ; FL HFE
+   (14,0) -2.11   ; FL KFE
 
-   ;; Front-Right leg: FR_hip_joint, FR_thigh_joint, FR_calf_joint ;;
-   (15,0)  0.20   ; FR HAA (略内收)
-   (16,0)  0.72   ; FR HFE
-   (17,0) -1.44   ; FR KFE
+   ;; Front-Right leg: FR_HAA, FR_HFE, FR_KFE ;;
+   (15,0)  0.00   ; FR HAA
+   (16,0)  1.04   ; FR HFE
+   (17,0) -2.11   ; FR KFE
 
-   ;; Rear-Left   leg: RL_hip_joint, RL_thigh_joint, RL_calf_joint ;;
-   (18,0) -0.20   ; RL HAA
-   (19,0)  0.72   ; RL HFE
-   (20,0) -1.44   ; RL KFE
+   ;; Rear-Left leg: RL_HAA, RL_HFE, RL_KFE ;;
+   (18,0)  0.00   ; RL HAA
+   (19,0)  1.04   ; RL HFE
+   (20,0) -2.11   ; RL KFE
 
-   ;; Rear-Right  leg: RR_hip_joint, RR_thigh_joint, RR_calf_joint ;;
-   (21,0)  0.20   ; RR HAA
-   (22,0)  0.72   ; RR HFE
-   (23,0) -1.44   ; RR KFE
+   ;; Rear-Right leg: RR_HAA, RR_HFE, RR_KFE ;;
+   (21,0)  0.00   ; RR HAA
+   (22,0)  1.04   ; RR HFE
+   (23,0) -2.11   ; RR KFE
 }
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
