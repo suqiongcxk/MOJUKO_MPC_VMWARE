@@ -20,6 +20,8 @@ struct MpcShmLayout {
     double  joint_velocity[12];              // 12 关节角速度
     uint8_t contact_flags[4];                // LF,RF,LH,RH 足端触地标志 (0/1)
     uint8_t mpc_active;                      // 1=sim 请求 MPC 接管
+    double  target_com_height;               // 目标 COM 高度 (m)
+    uint8_t height_updated;                  // 1=有新高度指令需处理
 
     // ========== 控制区：MPC → simulate ==========
     std::atomic<uint64_t> control_sequence;  // MPC 每写一次 +1

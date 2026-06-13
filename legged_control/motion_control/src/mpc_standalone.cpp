@@ -63,6 +63,26 @@ struct MpcShmLayout {
 static volatile bool g_running = true;
 static void sigHandler(int) { g_running = false; }
 
+// ---------- 根据目标 COM 高度解算站立关节角 (Newton 法) ----------
+// 几何约束: 足端在基座系下 z = -height, x 保持在髋关节附近
+// 保持腿形比例 KFE/HFE = r (参考值), 对 HFE 一维 Newton 求解
+inline void computeStandingJointAngles(double targetHeight, double& hfe, double& kfe) {
+    const double thighZ = 0.21;   // HFE→KFE 关节 Z 偏移
+    const double calfZ  = 0.213;  // KFE→足端 Z 偏移
+    const double hipZ   = -0.01;  // 髋关节在基座系 Z
+    const double r = -2.029;      // KFE/HFE 比例 (参考: -2.11/1.04)
+    const double c1 = 1.0 + r;    // HFE+KFE = c1 * HFE
+
+    double theta = 1.04;  // 初始猜测: 参考 HFE
+    for (int iter = 0; iter < 5; iter++) {
+        double f  = thighZ * std::cos(theta) + calfZ * std::cos(c1 * theta) - (targetHeight + hipZ);
+        double df = -thighZ * std::sin(theta) - calfZ * c1 * std::sin(c1 * theta);
+        theta -= f / df;
+    }
+    hfe = theta;
+    kfe = r * theta;
+}
+
 // ---------- 四元数 → ZYX 欧拉角 ----------
 inline vector3_t quatToZyx(const Eigen::Quaternion<ocs2::scalar_t>& q) {
     vector3_t zyx;
@@ -248,10 +268,18 @@ int main(int argc, char** argv) {
         // 检查高度指令更新
         if (shm->height_updated) {
             double newHeight = shm->target_com_height;
-            std::printf("[MPC] 目标高度更新: %.3f m\n", newHeight);
+            double hfe, kfe;
+            computeStandingJointAngles(newHeight, hfe, kfe);
+            std::printf("[MPC] 目标高度更新: %.3f m → HFE=%.4f KFE=%.4f\n", newHeight, hfe, kfe);
             ocs2::TargetTrajectories targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
-            for (auto& state : targets.stateTrajectory)
+            for (auto& state : targets.stateTrajectory) {
                 state(8) = newHeight;
+                // 模型顺序 LF→LH→RF→RH, HFE=13,16,19,22  KFE=14,17,20,23
+                for (int leg = 0; leg < 4; leg++) {
+                    state(12 + leg*3 + 1) = hfe;
+                    state(12 + leg*3 + 2) = kfe;
+                }
+            }
             mpcMrtInterface->getReferenceManager().setTargetTrajectories(targets);
             shm->height_updated = 0;
         }

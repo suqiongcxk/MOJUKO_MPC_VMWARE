@@ -193,25 +193,25 @@ Q
   ;; 基座位姿 [6-11] ;;
   (6,6)   1000.0    ; p_base_x
   (7,7)   1000.0    ; p_base_y
-  (8,8)   1500.0    ; p_base_z (最大权重, 保持身高)
+  (8,8)   5000.0    ; p_base_z (最大权重, 保持身高)
   (9,9)   100.0     ; yaw
   (10,10) 500.0     ; pitch
   (11,11) 300.0     ; roll
 
   ;; 12 joints [12-23]: FL→FR→RL→RR, each [HAA, HFE, KFE] ;;
-  ;;  HFE/KFE 放大 20x：让 MPC 愿意出力纠正关节误差，不要让 posDes 跟着漂 ;;
+  ;;  放宽关节权重：降低反馈增益，减少 PD 级联抖动 ;;
   (12,12) 20.0      ; FL hip (HAA)
-  (13,13) 400.0     ; FL thigh (HFE)
-  (14,14) 200.0     ; FL calf (KFE)
+  (13,13) 100.0     ; FL thigh (HFE)
+  (14,14) 50.0      ; FL calf (KFE)
   (15,15) 20.0      ; FR hip (HAA)
-  (16,16) 400.0     ; FR thigh (HFE)
-  (17,17) 200.0     ; FR calf (KFE)
+  (16,16) 100.0     ; FR thigh (HFE)
+  (17,17) 50.0      ; FR calf (KFE)
   (18,18) 20.0      ; RL hip (HAA)
-  (19,19) 400.0     ; RL thigh (HFE)
-  (20,20) 200.0     ; RL calf (KFE)
+  (19,19) 100.0     ; RL thigh (HFE)
+  (20,20) 50.0      ; RL calf (KFE)
   (21,21) 20.0      ; RR hip (HAA)
-  (22,22) 400.0     ; RR thigh (HFE)
-  (23,23) 200.0     ; RR calf (KFE)
+  (22,22) 100.0     ; RR thigh (HFE)
+  (23,23) 50.0      ; RR calf (KFE)
 }
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -226,16 +226,16 @@ R
   ;; 足端接触力 [0-11] ;;
   (0,0)   1.0       ; FL_force_x
   (1,1)   1.0       ; FL_force_y
-  (2,2)   1.0       ; FL_force_z
+  (2,2)   5.0       ; FL_force_z
   (3,3)   1.0       ; FR_force_x
   (4,4)   1.0       ; FR_force_y
-  (5,5)   1.0       ; FR_force_z
+  (5,5)   5.0       ; FR_force_z
   (6,6)   1.0       ; RL_force_x
   (7,7)   1.0       ; RL_force_y
-  (8,8)   1.0       ; RL_force_z
+  (8,8)   5.0       ; RL_force_z
   (9,9)   1.0       ; RR_force_x
   (10,10) 1.0       ; RR_force_y
-  (11,11) 1.0       ; RR_force_z
+  (11,11) 5.0       ; RR_force_z
 
   ;; 摆动足端速度 [12-23] ;;
   (12,12) 5000.0    ; FL_vel_x

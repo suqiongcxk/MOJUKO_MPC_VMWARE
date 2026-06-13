@@ -139,6 +139,13 @@ target_link_libraries(mpc_standalone
 )
 target_compile_options(mpc_standalone PRIVATE ${OCS2_CXX_FLAGS})
 
+## Height commander terminal (talks to MPC via shm)
+add_executable(height_commander
+  src/height_commander.cpp
+)
+target_link_libraries(height_commander pthread rt)
+target_compile_options(height_commander PRIVATE ${OCS2_CXX_FLAGS})
+
 #########################
 ###   CLANG TOOLING   ###
 #########################
@@ -171,6 +178,7 @@ install(
   TARGETS
     legged_robot_sqp_mpc
     mpc_standalone
+    height_commander
     DESTINATION lib/${PROJECT_NAME}
 )
 #install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
