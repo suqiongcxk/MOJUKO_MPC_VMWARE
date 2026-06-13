@@ -215,7 +215,11 @@ int main(int argc, char** argv) {
         "RH_HAA_tau,RH_HFE_tau,RH_KFE_tau,"
         "LF_Fx,LF_Fy,LF_Fz,RF_Fx,RF_Fy,RF_Fz,"
         "LH_Fx,LH_Fy,LH_Fz,RH_Fx,RH_Fy,RH_Fz,"
+        // MPC 期望足端力 (optInput, 模型顺序 LF→RF→LH→RH)
+        "mpc_F_LFx,mpc_F_LFy,mpc_F_LFz,mpc_F_RFx,mpc_F_RFy,mpc_F_RFz,"
+        "mpc_F_LHx,mpc_F_LHy,mpc_F_LHz,mpc_F_RHx,mpc_F_RHy,mpc_F_RHz,"
         // MPC 内部状态
+        "meas_com_x,opt_com_x,"
         "ref_p_base_z,meas_p_base_z,opt_p_base_z,"
         "ref_joint_LF_HFE,ref_joint_LF_KFE,ref_joint_LH_HFE,ref_joint_LH_KFE,"
         "meas_joint_LF_HFE,meas_joint_LF_KFE,meas_joint_LH_HFE,meas_joint_LH_KFE\n");
@@ -500,7 +504,11 @@ int main(int argc, char** argv) {
           for (int i = 0; i < 12; i++) std::fprintf(csv, "%.4f,", shm->joint_torque[i]);
           for (int i = 0; i < 11; i++) std::fprintf(csv, "%.4f,", footForces(i));
           std::fprintf(csv, "%.4f,", footForces(11));
+          // MPC 期望足端力
+          for (int i = 0; i < 11; i++) std::fprintf(csv, "%.4f,", optInput(i));
+          std::fprintf(csv, "%.4f,", optInput(11));
           // MPC 内部状态
+          std::fprintf(csv, "%.4f,%.4f,", obs.state(6), optState(6));
           std::fprintf(csv, "%.4f,%.4f,%.4f,", ref_z, obs.state(8), optState(8));
           std::fprintf(csv, "%.4f,%.4f,%.4f,%.4f,", ref_lf_hfe, ref_lf_kfe, ref_lh_hfe, ref_lh_kfe);
           // measuredRbd 在模型顺序: LF_HFE=7, LF_KFE=8, LH_HFE=10, LH_KFE=11
