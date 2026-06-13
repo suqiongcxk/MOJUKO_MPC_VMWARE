@@ -191,71 +191,7 @@ int main(int argc, char** argv) {
     // 安静模式：OCS2 时间警告刷屏，重定向到文件
     std::freopen("/home/cxk/creeper_ws/log/mpc_stderr.log", "w", stderr);
 
-    // ---- 9. 构建初始策略（用最新传感器时间，最快速度完成）----
-    std::printf("[MPC] 构建初始策略...\n");
-    {
-        ocs2::vector_t measuredRbd(36);
-        buildMeasuredRbdState(shm, measuredRbd);
-        ocs2::SystemObservation obs;
-        obs.time = shm->simulation_time;
-        obs.state = rbdConversions->computeCentroidalStateFromRbdModel(measuredRbd);
-        obs.input.setZero(leggedInterface->getCentroidalModelInfo().inputDim);
-        obs.mode = ModeNumber::STANCE;
-
-        mpcMrtInterface->setCurrentObservation(obs);
-        ocs2::TargetTrajectories targets({obs.time}, {obs.state}, {obs.input});
-        mpcMrtInterface->getReferenceManager().setTargetTrajectories(targets);
-
-        ocs2::benchmark::RepeatedTimer initTimer;
-        while (!mpcMrtInterface->initialPolicyReceived() && g_running) {
-            initTimer.startTimer();
-            mpcMrtInterface->advanceMpc();
-            initTimer.endTimer();
-            double ms = initTimer.getLastIntervalInMilliseconds();
-            if (mpcMrtInterface->initialPolicyReceived()) break;
-            std::printf("  advanceMpc: %.1f ms\n", ms);
-        }
-    }
-    std::printf("[MPC] 初始策略就绪 (t=%.3f)\n", shm->simulation_time);
-
-    // 首次 evaluatePolicy + WBC
-    ocs2::vector_t measuredRbd(36);
-    buildMeasuredRbdState(shm, measuredRbd);
-    ocs2::SystemObservation obs;
-    obs.time = shm->simulation_time;
-    obs.state = rbdConversions->computeCentroidalStateFromRbdModel(measuredRbd);
-    obs.input.setZero(leggedInterface->getCentroidalModelInfo().inputDim);
-
-    contact_flag_t contactFlag{};
-    for (int i = 0; i < 4; i++) contactFlag[i] = shm->contact_flags[i];
-    obs.mode = stanceLeg2ModeNumber(contactFlag);
-
-    // ---- 10. 写首帧控制指令，设置 control_ready = true ----
-    {
-        mpcMrtInterface->setCurrentObservation(obs);
-        mpcMrtInterface->updatePolicy();
-
-        ocs2::vector_t optState, optInput;
-        size_t plannedMode = 0;
-        mpcMrtInterface->evaluatePolicy(obs.time, obs.state, optState, optInput, plannedMode);
-
-        ocs2::vector_t x = wbc->update(optState, optInput, measuredRbd, plannedMode, wbcPeriod);
-        ocs2::vector_t torque = x.tail(12);
-        ocs2::vector_t posDes = ocs2::centroidal_model::getJointAngles(optState, leggedInterface->getCentroidalModelInfo());
-        ocs2::vector_t velDes = ocs2::centroidal_model::getJointVelocities(optInput, leggedInterface->getCentroidalModelInfo());
-
-        // 首帧：模型顺序(LF→LH→RF→RH)→shm顺序(LF→RF→LH→RH)
-        static const int model2shm[12] = {0,1,2, 6,7,8, 3,4,5, 9,10,11};
-        for (int i = 0; i < 12; i++) {
-            shm->joint_torque[model2shm[i]]        = torque(i);
-            shm->joint_position_des[model2shm[i]]  = posDes(i);
-            shm->joint_velocity_des[model2shm[i]]  = velDes(i);
-        }
-        shm->control_sequence.fetch_add(1, std::memory_order_release);
-        shm->control_ready.store(true, std::memory_order_release);
-        shm->mpc_active = 1;
-        std::printf("[MPC] control_ready = true\n");
-    }
+    // 初始策略将在主循环首次迭代中构建
 
     // ---- 11. 主循环：500Hz WBC + 40Hz MPC ----
     std::printf("[MPC] 进入主控制循环\n");
@@ -285,19 +221,10 @@ int main(int argc, char** argv) {
         "meas_joint_LF_HFE,meas_joint_LF_KFE,meas_joint_LH_HFE,meas_joint_LH_KFE\n");
     }
 
-    // 打印初始参考轨迹
-    {
-      const auto& targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
-      std::printf("[MPC] === 初始参考轨迹 (%zu 个点) ===\n", targets.stateTrajectory.size());
-      std::printf("      time  p_base_z  LF_HFE  LF_KFE  LH_HFE  LH_KFE\n");
-      for (size_t k = 0; k < targets.stateTrajectory.size(); k++) {
-        const auto& s = targets.stateTrajectory[k];
-        std::printf("  %7.3f  %8.4f  %6.4f  %7.4f  %6.4f  %7.4f\n",
-          targets.timeTrajectory[k], s(8),
-          s(12+1), s(12+2), s(12+4), s(12+5));
-      }
-      std::printf("[MPC] ==============================\n");
-    }
+    bool firstIteration = true;
+    ocs2::vector_t measuredRbd(36);
+    ocs2::SystemObservation obs;
+    contact_flag_t contactFlag{};
 
     auto loopStart = std::chrono::steady_clock::now();
     long long step = 0;
@@ -355,6 +282,61 @@ int main(int argc, char** argv) {
         obs.mode = stanceLeg2ModeNumber(contactFlag);
 
         mpcMrtInterface->setCurrentObservation(obs);
+
+        // 首次迭代：构建初始策略 + 设置 control_ready
+        if (firstIteration) {
+            ocs2::TargetTrajectories targets({obs.time}, {obs.state}, {obs.input});
+            mpcMrtInterface->getReferenceManager().setTargetTrajectories(targets);
+
+            mpcMrtInterface->advanceMpc();
+            mpcMrtInterface->updatePolicy();
+
+            ocs2::vector_t optState, optInput;
+            size_t plannedMode = 0;
+            mpcMrtInterface->evaluatePolicy(obs.time, obs.state, optState, optInput, plannedMode);
+
+            ocs2::vector_t x = wbc->update(optState, optInput, measuredRbd, plannedMode, wbcPeriod);
+            ocs2::vector_t torque = x.tail(12);
+            ocs2::vector_t posDes = ocs2::centroidal_model::getJointAngles(optState, leggedInterface->getCentroidalModelInfo());
+            ocs2::vector_t velDes = ocs2::centroidal_model::getJointVelocities(optInput, leggedInterface->getCentroidalModelInfo());
+
+            static const int model2shm_first[12] = {0,1,2, 6,7,8, 3,4,5, 9,10,11};
+            for (int i = 0; i < 12; i++) {
+                shm->joint_torque[model2shm_first[i]]        = torque(i);
+                shm->joint_position_des[model2shm_first[i]]  = posDes(i);
+                shm->joint_velocity_des[model2shm_first[i]]  = velDes(i);
+            }
+            shm->control_sequence.fetch_add(1, std::memory_order_release);
+            shm->control_ready.store(true, std::memory_order_release);
+            shm->mpc_active = 1;
+
+            std::printf("[MPC] 初始策略就绪 (t=%.3f), control_ready = true\n", obs.time);
+
+            // 打印初始参考轨迹
+            {
+                const auto& targets_ref = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
+                std::printf("[MPC] === 初始参考轨迹 (%zu 个点) ===\n", targets_ref.stateTrajectory.size());
+                std::printf("      time  p_base_z  LF_HFE  LF_KFE  LH_HFE  LH_KFE\n");
+                for (size_t k = 0; k < targets_ref.stateTrajectory.size(); k++) {
+                    const auto& s = targets_ref.stateTrajectory[k];
+                    std::printf("  %7.3f  %8.4f  %6.4f  %7.4f  %6.4f  %7.4f\n",
+                        targets_ref.timeTrajectory[k], s(8),
+                        s(12+1), s(12+2), s(12+4), s(12+5));
+                }
+                std::printf("[MPC] ==============================\n");
+            }
+
+            firstIteration = false;
+            mpcCount = 0;
+            lastSensorSeq = shm->sensor_sequence.load(std::memory_order_acquire);
+
+            // 保持 WBC 频率
+            auto now = std::chrono::steady_clock::now();
+            if (now < targetTime) {
+                std::this_thread::sleep_until(targetTime);
+            }
+            continue;
+        }
 
         // MPC advance（每 13 次 WBC 跑一次）
         mpcCount++;
