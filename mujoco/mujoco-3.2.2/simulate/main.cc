@@ -260,39 +260,69 @@ void myController(const mjModel* m, mjData* d) {
   if (use_mpc && shm && shm->control_ready.load(std::memory_order_acquire)) {
     uint64_t seq = shm->control_sequence.load(std::memory_order_acquire);
     if (seq > 0) {
-      // WBC 力矩标定系数（从力矩对比实测，修正 URDF/MJCF 幅值偏差）
+      // WBC 力矩标定系数（暂时全部置1，检查WBC原始输出对称性）
       static const double calib[12] = {
-          1.014, 0.898, 0.999,   // LF_HAA, LF_HFE, LF_KFE
-          0.824, 0.796, 0.786,   // RF_HAA, RF_HFE, RF_KFE
-          1.533, 1.024, 1.258,   // LH_HAA, LH_HFE, LH_KFE
-          0.995, 0.898, 0.988    // RH_HAA, RH_HFE, RH_KFE
+          1.0, 1.0, 1.0,   // LF_HAA, LF_HFE, LF_KFE
+          1.0, 1.0, 1.0,   // RF_HAA, RF_HFE, RF_KFE
+          1.0, 1.0, 1.0,   // LH_HAA, LH_HFE, LH_KFE
+          1.0, 1.0, 1.0    // RH_HAA, RH_HFE, RH_KFE
       };
 
-      // 控制律：首帧冻结 MPC 前馈 + PD 跟踪固定站立位姿
-      static double frozen_ff[12] = {0};
-      static bool ff_frozen = false;
-      static const double pd_target[12] = {
-         0.0, 1.0398, -2.1068,   // LF
-         0.0, 1.0398, -2.1068,   // RF
-         0.0, 1.0398, -2.1068,   // LH
-         0.0, 1.0398, -2.1068    // RH
+      // 控制律：慢速跟踪 MPC 期望位姿 + 标定前馈 + PD 阻尼
+      // PD 目标不再是固定的，而是慢慢跟随 MPC 的 posDes
+      static double pd_target[12] = {   // 初始化为当前站立值
+         0.0, 1.0398, -2.1068,
+         0.0, 1.0398, -2.1068,
+         0.0, 1.0398, -2.1068,
+         0.0, 1.0398, -2.1068
       };
 
-      if (!ff_frozen) {
+      if (seq != last_control_seq) {
+        // MPC 有更新时，pd_target 缓慢跟随（alpha=0.98, 时间常数~0.1s）
+        const double alpha = 0.98;
         for (int i = 0; i < 12; i++)
-          frozen_ff[i] = calib[i] * shm->joint_torque[i];
-        ff_frozen = true;
-        std::printf("[MPC] 前馈力矩已冻结\n");
+          pd_target[i] = alpha * pd_target[i] + (1.0 - alpha) * shm->joint_position_des[i];
       }
 
-      // 冻结前馈 + PD 跟踪站立位姿
       for (int i = 0; i < 12; i++) {
         double vel = d->qvel[6 + i];
-        d->ctrl[i] = frozen_ff[i] + 100.0 * (pd_target[i] - d->qpos[7 + i]) - 3.0 * vel;
+        double pos = d->qpos[7 + i];
+        // 标定前馈 + PD跟踪慢速移动的目标 + 阻尼
+        double ff = calib[i] * shm->joint_torque[i];
+        d->ctrl[i] = ff + 100.0 * (pd_target[i] - pos) - 3.0 * vel;
       }
 
       last_control_seq = seq;
       mpc_ok = true;
+
+      // CSV 日志
+      static FILE* sim_csv = nullptr;
+      if (!sim_csv) {
+        sim_csv = std::fopen("/home/cxk/creeper_ws/log/sim_diag.csv", "w");
+        if (sim_csv) {
+          std::fprintf(sim_csv, "time,com_z,"
+            "LF_HAA_target,LF_HFE_target,LF_KFE_target,"
+            "RF_HAA_target,RF_HFE_target,RF_KFE_target,"
+            "LH_HAA_target,LH_HFE_target,LH_KFE_target,"
+            "RH_HAA_target,RH_HFE_target,RH_KFE_target,"
+            "LF_HAA_pos,LF_HFE_pos,LF_KFE_pos,"
+            "RF_HAA_pos,RF_HFE_pos,RF_KFE_pos,"
+            "LH_HAA_pos,LH_HFE_pos,LH_KFE_pos,"
+            "RH_HAA_pos,RH_HFE_pos,RH_KFE_pos,"
+            "LF_HAA_tau,LF_HFE_tau,LF_KFE_tau,"
+            "RF_HAA_tau,RF_HFE_tau,RF_KFE_tau,"
+            "LH_HAA_tau,LH_HFE_tau,LH_KFE_tau,"
+            "RH_HAA_tau,RH_HFE_tau,RH_KFE_tau\n");
+        }
+      }
+      if (sim_csv) {
+        double com_z = d->sensordata[38 + 2];
+        std::fprintf(sim_csv, "%.4f,%.4f,", d->time, com_z);
+        for (int i = 0; i < 12; i++) std::fprintf(sim_csv, "%.4f,", pd_target[i]);
+        for (int i = 0; i < 12; i++) std::fprintf(sim_csv, "%.4f,", d->qpos[7 + i]);
+        for (int i = 0; i < 11; i++) std::fprintf(sim_csv, "%.4f,", d->ctrl[i]);
+        std::fprintf(sim_csv, "%.4f\n", d->ctrl[11]);
+      }
     }
   }
 
@@ -323,11 +353,10 @@ void myController(const mjModel* m, mjData* d) {
         d->ctrl[i] = kp * (target - d->qpos[7 + i]) - kd * d->qvel[6 + i];
       }
 
-      // 诊断：对比 PD 力矩 vs WBC 前馈力矩（单次）
-      static bool cmp_printed = false;
-      if (!cmp_printed && shm && shm->control_ready.load()) {
-        cmp_printed = true;
-        std::printf("\n=== 力矩对比: PD(真值) vs WBC(模型) ===\n");
+      // 诊断：对比 PD 力矩 vs WBC 前馈力矩（每 500 帧, ~0.5s）
+      static int cmp_frame = 0;
+      if (shm && shm->control_ready.load() && ++cmp_frame % 500 == 0) {
+        std::printf("\n=== 力矩对比 (t=%.2f): PD(真值) vs WBC(模型) ===\n", d->time);
         std::printf("%8s  %10s  %10s  %7s\n", "关节", "PD torque", "WBC ff", "差值");
         const char* jn[12] = {"LF_HAA","LF_HFE","LF_KFE","RF_HAA","RF_HFE","RF_KFE",
                               "LH_HAA","LH_HFE","LH_KFE","RH_HAA","RH_HFE","RH_KFE"};

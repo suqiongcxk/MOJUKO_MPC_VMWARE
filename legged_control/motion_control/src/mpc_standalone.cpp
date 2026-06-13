@@ -9,6 +9,9 @@
 #include "motion_control/gait/MotionPhaseDefinition.h"
 #include "motion_control/legged_estimation/StateEstimateBase.h"
 
+#include <pinocchio/fwd.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/jacobian.hpp>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
@@ -32,6 +35,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <csignal>
+#include <cstdarg>
 
 // ---------- 共享内存布局（与 simulate/mpc_shm.h 保持一致）----------
 
@@ -46,6 +50,8 @@ struct MpcShmLayout {
     double  joint_velocity[12];
     uint8_t contact_flags[4];
     uint8_t mpc_active;
+    double  target_com_height;
+    uint8_t height_updated;
 
     std::atomic<uint64_t> control_sequence;
     std::atomic<bool>     control_ready;
@@ -75,13 +81,16 @@ void buildMeasuredRbdState(MpcShmLayout* shm, ocs2::vector_t& rbdState) {
                                             shm->base_quat[2], shm->base_quat[3]);
     vector3_t euler = quatToZyx(quat);
 
+    // shm 关节顺序: LF→RF→LH→RH, Pinocchio 模型顺序: LF→LH→RF→RH
+    // 需要把 RF(3-5) 和 LH(6-8) 交换
+    static const int shm2model[12] = {0,1,2,  6,7,8,  3,4,5,  9,10,11};  // shm idx → model idx
     rbdState.setZero(36);
     rbdState.segment<3>(0) = euler;
     rbdState.segment<3>(3) = Eigen::Map<const vector3_t>(shm->base_position);
-    for (int i = 0; i < 12; i++) rbdState(6 + i) = shm->joint_position[i];
+    for (int i = 0; i < 12; i++) rbdState(6 + shm2model[i]) = shm->joint_position[i];
     rbdState.segment<3>(18) = Eigen::Map<const vector3_t>(shm->base_angular_vel);
     rbdState.segment<3>(21) = Eigen::Map<const vector3_t>(shm->base_linear_vel);
-    for (int i = 0; i < 12; i++) rbdState(24 + i) = shm->joint_velocity[i];
+    for (int i = 0; i < 12; i++) rbdState(24 + shm2model[i]) = shm->joint_velocity[i];
 }
 
 // ======================================================================
@@ -179,18 +188,19 @@ int main(int argc, char** argv) {
     double wbcPeriod = 1.0 / wbcFreq;
     std::printf("[MPC] MPC=%dHz  WBC=%dHz  ratio=%d\n", mpcFreq, wbcFreq, freqRatio);
 
-    // ---- 9. 构建初始策略 ----
+    // 安静模式：OCS2 时间警告刷屏，重定向到文件
+    std::freopen("/home/cxk/creeper_ws/log/mpc_stderr.log", "w", stderr);
+
+    // ---- 9. 构建初始策略（用最新传感器时间，最快速度完成）----
     std::printf("[MPC] 构建初始策略...\n");
     {
-        ocs2::SystemObservation obs;
-        obs.time = shm->simulation_time;
-        obs.state.setZero(leggedInterface->getCentroidalModelInfo().stateDim);
-        obs.input.setZero(leggedInterface->getCentroidalModelInfo().inputDim);
-        obs.mode = ModeNumber::STANCE;
-
         ocs2::vector_t measuredRbd(36);
         buildMeasuredRbdState(shm, measuredRbd);
+        ocs2::SystemObservation obs;
+        obs.time = shm->simulation_time;
         obs.state = rbdConversions->computeCentroidalStateFromRbdModel(measuredRbd);
+        obs.input.setZero(leggedInterface->getCentroidalModelInfo().inputDim);
+        obs.mode = ModeNumber::STANCE;
 
         mpcMrtInterface->setCurrentObservation(obs);
         ocs2::TargetTrajectories targets({obs.time}, {obs.state}, {obs.input});
@@ -202,18 +212,17 @@ int main(int argc, char** argv) {
             mpcMrtInterface->advanceMpc();
             initTimer.endTimer();
             double ms = initTimer.getLastIntervalInMilliseconds();
+            if (mpcMrtInterface->initialPolicyReceived()) break;
             std::printf("  advanceMpc: %.1f ms\n", ms);
-            std::this_thread::sleep_for(std::chrono::milliseconds(
-                static_cast<int>(1000.0 / leggedInterface->mpcSettings().mrtDesiredFrequency_)));
         }
     }
-    std::printf("[MPC] 初始策略就绪\n");
+    std::printf("[MPC] 初始策略就绪 (t=%.3f)\n", shm->simulation_time);
 
     // 首次 evaluatePolicy + WBC
-    ocs2::SystemObservation obs;
-    obs.time = shm->simulation_time;
     ocs2::vector_t measuredRbd(36);
     buildMeasuredRbdState(shm, measuredRbd);
+    ocs2::SystemObservation obs;
+    obs.time = shm->simulation_time;
     obs.state = rbdConversions->computeCentroidalStateFromRbdModel(measuredRbd);
     obs.input.setZero(leggedInterface->getCentroidalModelInfo().inputDim);
 
@@ -235,12 +244,12 @@ int main(int argc, char** argv) {
         ocs2::vector_t posDes = ocs2::centroidal_model::getJointAngles(optState, leggedInterface->getCentroidalModelInfo());
         ocs2::vector_t velDes = ocs2::centroidal_model::getJointVelocities(optInput, leggedInterface->getCentroidalModelInfo());
 
-        // 首帧也做符号修正（RF_HAA=3, LH_HAA=6）
+        // 首帧：模型顺序(LF→LH→RF→RH)→shm顺序(LF→RF→LH→RH)
+        static const int model2shm[12] = {0,1,2, 6,7,8, 3,4,5, 9,10,11};
         for (int i = 0; i < 12; i++) {
-            double sign = (i == 3 || i == 6) ? -1.0 : 1.0;
-            shm->joint_torque[i]        = sign * torque(i);
-            shm->joint_position_des[i]  = posDes(i);
-            shm->joint_velocity_des[i]  = velDes(i);
+            shm->joint_torque[model2shm[i]]        = torque(i);
+            shm->joint_position_des[model2shm[i]]  = posDes(i);
+            shm->joint_velocity_des[model2shm[i]]  = velDes(i);
         }
         shm->control_sequence.fetch_add(1, std::memory_order_release);
         shm->control_ready.store(true, std::memory_order_release);
@@ -254,7 +263,41 @@ int main(int argc, char** argv) {
     int mpcCount = 0;
     ocs2::scalar_t yawLast = 0;
     uint64_t lastSensorSeq = 0;
-    int diagCount = 0;  // 前 5 帧打印诊断信息
+    int diagCount = 0;  // 前 20 帧打印诊断信息
+
+    // CSV 日志
+    FILE* csv = std::fopen("/home/cxk/creeper_ws/log/mpc_diag.csv", "w");
+    if (csv) {
+      std::fprintf(csv, "time,nWsr,"
+        "LF_HAA_posDes,LF_HFE_posDes,LF_KFE_posDes,"
+        "RF_HAA_posDes,RF_HFE_posDes,RF_KFE_posDes,"
+        "LH_HAA_posDes,LH_HFE_posDes,LH_KFE_posDes,"
+        "RH_HAA_posDes,RH_HFE_posDes,RH_KFE_posDes,"
+        "LF_HAA_tau,LF_HFE_tau,LF_KFE_tau,"
+        "RF_HAA_tau,RF_HFE_tau,RF_KFE_tau,"
+        "LH_HAA_tau,LH_HFE_tau,LH_KFE_tau,"
+        "RH_HAA_tau,RH_HFE_tau,RH_KFE_tau,"
+        "LF_Fx,LF_Fy,LF_Fz,RF_Fx,RF_Fy,RF_Fz,"
+        "LH_Fx,LH_Fy,LH_Fz,RH_Fx,RH_Fy,RH_Fz,"
+        // MPC 内部状态
+        "ref_p_base_z,meas_p_base_z,opt_p_base_z,"
+        "ref_joint_LF_HFE,ref_joint_LF_KFE,ref_joint_LH_HFE,ref_joint_LH_KFE,"
+        "meas_joint_LF_HFE,meas_joint_LF_KFE,meas_joint_LH_HFE,meas_joint_LH_KFE\n");
+    }
+
+    // 打印初始参考轨迹
+    {
+      const auto& targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
+      std::printf("[MPC] === 初始参考轨迹 (%zu 个点) ===\n", targets.stateTrajectory.size());
+      std::printf("      time  p_base_z  LF_HFE  LF_KFE  LH_HFE  LH_KFE\n");
+      for (size_t k = 0; k < targets.stateTrajectory.size(); k++) {
+        const auto& s = targets.stateTrajectory[k];
+        std::printf("  %7.3f  %8.4f  %6.4f  %7.4f  %6.4f  %7.4f\n",
+          targets.timeTrajectory[k], s(8),
+          s(12+1), s(12+2), s(12+4), s(12+5));
+      }
+      std::printf("[MPC] ==============================\n");
+    }
 
     auto loopStart = std::chrono::steady_clock::now();
     long long step = 0;
@@ -271,11 +314,22 @@ int main(int argc, char** argv) {
             if (std::chrono::steady_clock::now() > targetTime + std::chrono::milliseconds(2)) break;
         }
 
+        // 检查高度指令更新
+        if (shm->height_updated) {
+            double newHeight = shm->target_com_height;
+            std::printf("[MPC] 目标高度更新: %.3f m\n", newHeight);
+            ocs2::TargetTrajectories targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
+            for (auto& state : targets.stateTrajectory)
+                state(8) = newHeight;
+            mpcMrtInterface->getReferenceManager().setTargetTrajectories(targets);
+            shm->height_updated = 0;
+        }
+
         // 构建状态
         buildMeasuredRbdState(shm, measuredRbd);
 
-        if (diagCount < 5) {
-            std::printf("\n=== 诊断帧 %d (t=%.3f) ===\n", diagCount, shm->simulation_time);
+        if (diagCount < 20) {
+            std::printf("\n=== 诊断帧 %d (t=%.3f) nWsr=%d ===\n", diagCount, shm->simulation_time, wbc->getLastNwsr());
             std::printf("base: quat=(%.4f,%.4f,%.4f,%.4f) pos=(%.4f,%.4f,%.4f)\n",
                         shm->base_quat[0], shm->base_quat[1], shm->base_quat[2], shm->base_quat[3],
                         shm->base_position[0], shm->base_position[1], shm->base_position[2]);
@@ -321,9 +375,112 @@ int main(int argc, char** argv) {
         ocs2::vector_t x = wbc->update(optState, optInput, measuredRbd, plannedMode, wbcPeriod);
         wbcTimer.endTimer();
 
-        // 诊断：打印 WBC 足端力（前 5 帧）
-        if (diagCount < 5 && diagCount >= 0) {
-            ocs2::vector_t footForces = x.segment<12>(18);  // Fx,Fy,Fz × 4
+        ocs2::vector_t footForces = x.segment<12>(18);
+
+        // 对称性诊断：用完美对称的实测状态再跑一次 WBC，对比力矩
+        if (diagCount == 1) {
+          ocs2::vector_t symRbd = measuredRbd;
+          // 位置：清零所有不对称分量
+          symRbd.segment<3>(0).setZero();            // euler = 0
+          symRbd(3) = 0.0; symRbd(4) = 0.0;         // base x,y = 0
+          for (int leg = 0; leg < 4; leg++) symRbd(6 + leg*3) = 0.0;  // HAA = 0
+          for (int j : {1, 2}) {
+            double avg = 0.0;
+            for (int leg = 0; leg < 4; leg++) avg += measuredRbd(6 + leg*3 + j);
+            avg /= 4.0;
+            for (int leg = 0; leg < 4; leg++) symRbd(6 + leg*3 + j) = avg;
+          }
+          // 速度：全部清零
+          symRbd.segment<3>(18).setZero();            // base angular vel = 0
+          symRbd.segment<3>(21).setZero();            // base linear vel = 0
+          for (int i = 0; i < 12; i++) symRbd(24 + i) = 0.0;  // joint vel = 0
+
+          ocs2::vector_t xSym = wbc->update(optState, optInput, symRbd, plannedMode, wbcPeriod);
+          ocs2::vector_t tauSym = xSym.tail(12);
+          ocs2::vector_t torque = x.tail(12);
+          ocs2::vector_t symForce = xSym.segment<12>(18);
+
+          FILE* df = std::fopen("/home/cxk/creeper_ws/log/symmetry_diag.txt", "w");
+          auto out = [&](const char* fmt, ...) {
+            va_list ap; va_start(ap, fmt);
+            std::vfprintf(stdout, fmt, ap); va_end(ap);
+            if (df) { va_start(ap, fmt); std::vfprintf(df, fmt, ap); va_end(ap); }
+          };
+          out("\n=== 对称性诊断 (位置+速度全对称) ===\n");
+          // 模型顺序 LF(0-2), LH(3-5), RF(6-8), RH(9-11)
+          out("  实测 HAA=[%.4f,%.4f,%.4f,%.4f] euler=[%.4f,%.4f,%.4f]\n",
+            measuredRbd(6), measuredRbd(12), measuredRbd(9), measuredRbd(15),
+            measuredRbd(0), measuredRbd(1), measuredRbd(2));
+          out("  实测基座速度: ang=[%.4f,%.4f,%.4f] lin=[%.4f,%.4f,%.4f]\n",
+            measuredRbd(18), measuredRbd(19), measuredRbd(20),
+            measuredRbd(21), measuredRbd(22), measuredRbd(23));
+          out("  实测 HFE(LF,RF,LH,RH)=[%.4f,%.4f,%.4f,%.4f] KFE=[%.4f,%.4f,%.4f,%.4f]\n",
+            measuredRbd(7), measuredRbd(13), measuredRbd(10), measuredRbd(16),
+            measuredRbd(8), measuredRbd(14), measuredRbd(11), measuredRbd(17));
+          out("  对称 HFE=%.4f KFE=%.4f\n", symRbd(7), symRbd(8));
+          out("%8s  %10s  %10s  %10s\n", "关节", "真实力矩", "对称力矩", "差值");
+          const char* jn[12] = {"LF_HAA","LF_HFE","LF_KFE","RF_HAA","RF_HFE","RF_KFE",
+                                "LH_HAA","LH_HFE","LH_KFE","RH_HAA","RH_HFE","RH_KFE"};
+          for (int j = 0; j < 12; j++) {
+            out("%8s  %+10.4f  %+10.4f  %+10.4f\n", jn[j], torque(j), tauSym(j), torque(j)-tauSym(j));
+          }
+          out("--- 对称状态足端力 Fz ---\n");
+          out("  LF=%.2f  RF=%.2f  LH=%.2f  RH=%.2f\n", symForce(2), symForce(5), symForce(8), symForce(11));
+          // Pinocchio FK: 对称状态下的足端位置
+          {
+            auto& model = leggedInterface->getPinocchioInterface().getModel();
+            auto& data = leggedInterface->getPinocchioInterface().getData();
+            const auto& info = leggedInterface->getCentroidalModelInfo();
+            // Build Pinocchio q from symRbd
+            ocs2::vector_t q(info.generalizedCoordinatesNum);
+            q.head<3>() = symRbd.segment<3>(3);  // base pos
+            q.segment<3>(3) = symRbd.head<3>();   // base orientation
+            q.tail(info.actuatedDofNum) = symRbd.segment(6, info.actuatedDofNum);
+            pinocchio::forwardKinematics(model, data, q);
+            pinocchio::updateFramePlacements(model, data);
+            out("--- Pinocchio FK 足端位置 (对称状态) ---\n");
+            const char* footNames[4] = {"LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"};
+            for (size_t i = 0; i < info.endEffectorFrameIndices.size() && i < 4; i++) {
+              auto frameIdx = info.endEffectorFrameIndices[i];
+              const auto& pos = data.oMf[frameIdx].translation();
+              out("  %s: [%.4f, %.4f, %.4f]\n",
+                footNames[i], pos.x(), pos.y(), pos.z());
+            }
+            // KFE Jacobian: 先打印 Pinocchio 模型关节顺序，确认索引
+            out("--- Pinocchio 模型关节名及索引 ---\n");
+            for (int j = 0; j < model.njoints && j < 25; j++) {
+              out("  joint[%d]: %s\n", j, model.names[j].c_str());
+            }
+            // Jacobian 分析
+            pinocchio::computeJointJacobians(model, data, q);
+            out("--- 各足端 KFE Jacobian (Jz) - 检查所有关节列 ---\n");
+            for (int leg = 0; leg < 4; leg++) {
+              auto frameIdx = info.endEffectorFrameIndices[leg];
+              Eigen::Matrix<ocs2::scalar_t, 6, Eigen::Dynamic> jac(6, model.nv);
+              jac.setZero();
+              pinocchio::getFrameJacobian(model, data, frameIdx, pinocchio::LOCAL_WORLD_ALIGNED, jac);
+              out("  %s Jz(2,col): ", footNames[leg]);
+              for (int col = 6; col < model.nv; col++) {
+                if (std::abs(jac(2, col)) > 0.001)
+                  out("%d=%.4f ", col, jac(2, col));
+              }
+              out("\n");
+              // Also check the row for z component
+            }
+            // Mass matrix diagonal for KFE joints
+            out("--- 质量矩阵 M 对角元 (KFE 关节, 模型顺序) ---\n");
+            out("  LF_KFE: M(8,8)=%.6f\n", data.M(8,8));
+            out("  LH_KFE: M(11,11)=%.6f\n", data.M(11,11));
+            out("  RF_KFE: M(14,14)=%.6f\n", data.M(14,14));
+            out("  RH_KFE: M(17,17)=%.6f\n", data.M(17,17));
+          }
+          if (df) std::fclose(df);
+          out("(已保存到 ~/creeper_ws/log/symmetry_diag.txt)\n\n");
+          std::this_thread::sleep_for(std::chrono::seconds(3));
+        }
+
+        // 诊断：打印 WBC 足端力（前 20 帧）
+        if (diagCount < 20 && diagCount >= 0) {
             double totalFz = footForces(2) + footForces(5) + footForces(8) + footForces(11);
             std::printf("--- WBC 足端力 (N) ---\n");
             std::printf("  LF: Fx=%7.2f Fy=%7.2f Fz=%7.2f\n", footForces(0), footForces(1), footForces(2));
@@ -331,14 +488,13 @@ int main(int argc, char** argv) {
             std::printf("  LH: Fx=%7.2f Fy=%7.2f Fz=%7.2f\n", footForces(6), footForces(7), footForces(8));
             std::printf("  RH: Fx=%7.2f Fy=%7.2f Fz=%7.2f\n", footForces(9), footForces(10), footForces(11));
             std::printf("  总Fz=%.2f N (体重=%.2f N)\n", totalFz, 11.67 * 9.81);
-            ocs2::vector_t posDesCheck = ocs2::centroidal_model::getJointAngles(optState, leggedInterface->getCentroidalModelInfo());
             std::printf("  MPC期望关节角 vs 实际:\n");
             const char* jn[12] = {"LF_HAA","LF_HFE","LF_KFE","RF_HAA","RF_HFE","RF_KFE",
                                   "LH_HAA","LH_HFE","LH_KFE","RH_HAA","RH_HFE","RH_KFE"};
             for (int j = 0; j < 12; j++) {
                 std::printf("    %s: des=%+7.4f  cur=%+7.4f  diff=%+7.4f\n",
-                    jn[j], posDesCheck(j), shm->joint_position[j],
-                    posDesCheck(j) - shm->joint_position[j]);
+                    jn[j], shm->joint_position_des[j], shm->joint_position[j],
+                    shm->joint_position_des[j] - shm->joint_position[j]);
             }
         }
 
@@ -346,14 +502,58 @@ int main(int argc, char** argv) {
         ocs2::vector_t posDes = ocs2::centroidal_model::getJointAngles(optState, leggedInterface->getCentroidalModelInfo());
         ocs2::vector_t velDes = ocs2::centroidal_model::getJointVelocities(optInput, leggedInterface->getCentroidalModelInfo());
 
-        // 写共享内存（RF_HAA=3, LH_HAA=6 力矩取反：URDF/MJCF 轴正向不一致）
+        // CSV 日志
+        if (csv) {
+          const auto& targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
+          double ref_z = targets.stateTrajectory[0](8);
+          // 模型顺序: LF(0-2), LH(3-5), RF(6-8), RH(9-11)
+          // 质心状态关节从12开始: LF_HFE=13, LF_KFE=14, LH_HFE=16, LH_KFE=17
+          double ref_lf_hfe = targets.stateTrajectory[0](12+1);
+          double ref_lf_kfe = targets.stateTrajectory[0](12+2);
+          double ref_lh_hfe = targets.stateTrajectory[0](12+4);
+          double ref_lh_kfe = targets.stateTrajectory[0](12+5);
+
+          std::fprintf(csv, "%.4f,%d,", shm->simulation_time, wbc->getLastNwsr());
+          for (int i = 0; i < 12; i++) std::fprintf(csv, "%.4f,", shm->joint_position_des[i]);
+          for (int i = 0; i < 12; i++) std::fprintf(csv, "%.4f,", shm->joint_torque[i]);
+          for (int i = 0; i < 11; i++) std::fprintf(csv, "%.4f,", footForces(i));
+          std::fprintf(csv, "%.4f,", footForces(11));
+          // MPC 内部状态
+          std::fprintf(csv, "%.4f,%.4f,%.4f,", ref_z, obs.state(8), optState(8));
+          std::fprintf(csv, "%.4f,%.4f,%.4f,%.4f,", ref_lf_hfe, ref_lf_kfe, ref_lh_hfe, ref_lh_kfe);
+          // measuredRbd 在模型顺序: LF_HFE=7, LF_KFE=8, LH_HFE=10, LH_KFE=11
+          std::fprintf(csv, "%.4f,%.4f,%.4f,%.4f\n",
+            measuredRbd(6+1), measuredRbd(6+2), measuredRbd(6+4), measuredRbd(6+5));
+        }
+
+        // 模型顺序(LF→LH→RF→RH)→shm顺序(LF→RF→LH→RH)
+        static const int model2shm[12] = {0,1,2, 6,7,8, 3,4,5, 9,10,11};
         for (int i = 0; i < 12; i++) {
-            double sign = (i == 3 || i == 6) ? -1.0 : 1.0;
-            shm->joint_torque[i]        = sign * torque(i);
-            shm->joint_position_des[i]  = posDes(i);
-            shm->joint_velocity_des[i]  = velDes(i);
+            shm->joint_torque[model2shm[i]]        = torque(i);
+            shm->joint_position_des[model2shm[i]]  = posDes(i);
+            shm->joint_velocity_des[model2shm[i]]  = velDes(i);
         }
         shm->control_sequence.fetch_add(1, std::memory_order_release);
+
+        // 每 250 帧 (0.5s) 打印 MPC 内部状态对比
+        if (step % 250 == 0) {
+          const auto& targets = mpcMrtInterface->getReferenceManager().getTargetTrajectories();
+          double ref_z = targets.stateTrajectory[0](8);
+          std::printf("\n[MPC t=%.3f step=%lld] ref_z=%.4f meas_z=%.4f opt_z=%.4f\n",
+            shm->simulation_time, step, ref_z, obs.state(8), optState(8));
+          std::printf("  Joint   ref     meas    opt(MPC) opt-ref\n");
+          const char* jn_sel[4] = {"LF_HFE","LF_KFE","LH_HFE","LH_KFE"};
+          int ji[4] = {13, 14, 16, 17};  // centroidal (模型顺序: LF→LH→RF→RH)
+          int mji[4] = {7, 8, 10, 11};   // measuredRbd (model order, 6+offset)
+          for (int k = 0; k < 4; k++) {
+            std::printf("  %-7s %+7.4f %+7.4f %+7.4f %+8.4f\n",
+              jn_sel[k],
+              targets.stateTrajectory[0](ji[k]),  // ref
+              measuredRbd(mji[k]),                 // meas (MuJoCo)
+              optState(ji[k]),                     // MPC 优化结果
+              optState(ji[k]) - targets.stateTrajectory[0](ji[k]));  // MPC偏离ref的量
+          }
+        }
 
         // 休眠以维持 WBC 频率
         auto now = std::chrono::steady_clock::now();
@@ -362,6 +562,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (csv) std::fclose(csv);
     std::printf("[MPC] 退出\n");
     return 0;
 }

@@ -199,18 +199,19 @@ Q
   (11,11) 300.0     ; roll
 
   ;; 12 joints [12-23]: FL→FR→RL→RR, each [HAA, HFE, KFE] ;;
-  (12,12) 20.0      ; FL hip
-  (13,13) 20.0      ; FL thigh
-  (14,14) 10.0      ; FL calf
-  (15,15) 20.0      ; FR hip
-  (16,16) 20.0      ; FR thigh
-  (17,17) 10.0      ; FR calf
-  (18,18) 20.0      ; RL hip
-  (19,19) 20.0      ; RL thigh
-  (20,20) 10.0      ; RL calf
-  (21,21) 20.0      ; RR hip
-  (22,22) 20.0      ; RR thigh
-  (23,23) 10.0      ; RR calf
+  ;;  HFE/KFE 放大 20x：让 MPC 愿意出力纠正关节误差，不要让 posDes 跟着漂 ;;
+  (12,12) 20.0      ; FL hip (HAA)
+  (13,13) 400.0     ; FL thigh (HFE)
+  (14,14) 200.0     ; FL calf (KFE)
+  (15,15) 20.0      ; FR hip (HAA)
+  (16,16) 400.0     ; FR thigh (HFE)
+  (17,17) 200.0     ; FR calf (KFE)
+  (18,18) 20.0      ; RL hip (HAA)
+  (19,19) 400.0     ; RL thigh (HFE)
+  (20,20) 200.0     ; RL calf (KFE)
+  (21,21) 20.0      ; RR hip (HAA)
+  (22,22) 400.0     ; RR thigh (HFE)
+  (23,23) 200.0     ; RR calf (KFE)
 }
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
